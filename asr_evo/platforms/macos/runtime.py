@@ -65,14 +65,7 @@ class MacOSDictationRuntime:
             status_config=config.status,
             styles=self.styles.all(),
             selected_style_id=self.current_style_id,
-            on_toggle=self.toggle_dictation,
             on_select_style=self.select_style,
-            on_reload_styles=self.reload_styles,
-            on_set_context_ttl=self.set_context_ttl,
-            on_set_context_items=self.set_context_items,
-            on_set_hotkey_preset=self.set_hotkey_preset,
-            on_new_prompt=self.new_prompt_template,
-            on_delete_prompt=self.delete_current_prompt,
             on_reveal_prompts=self.reveal_prompts_dir,
             on_reload_config=self.reload_config,
             on_open_config=self.open_config_file,
@@ -129,14 +122,16 @@ class MacOSDictationRuntime:
         self.current_style_id = style_id
         self.tray.set_styles(self.styles.all(), self.current_style_id)
         self.update_prompt_preview()
+        self.update_app_binding_summary()
         self.tray.set_state(self.state.state.value, f"style: {self.styles.get(style_id).label}")
 
     def reload_styles(self) -> None:
         self.styles.reload()
         if not self.styles.has(self.current_style_id):
-            self.current_style_id = "polished"
+            self.current_style_id = self.styles.default_style_id()
         self.tray.set_styles(self.styles.all(), self.current_style_id)
         self.update_prompt_preview()
+        self.update_app_binding_summary()
         self.tray.set_state(self.state.state.value, "已重新加载提示词")
 
     def set_context_ttl(self, seconds: int) -> None:
@@ -176,14 +171,12 @@ class MacOSDictationRuntime:
         from pathlib import Path
 
         style = self.styles.get(self.current_style_id)
-        if style.source == "built-in":
-            self.tray.set_state(self.state.state.value, "内置提示词不能删除")
-            return
         path = Path(style.source)
         if path.exists():
             path.unlink()
-        self.current_style_id = "polished"
         self.reload_styles()
+        self.current_style_id = self.styles.default_style_id()
+        self.tray.set_styles(self.styles.all(), self.current_style_id)
         self.tray.set_state(self.state.state.value, f"已删除：{style.label}")
 
     def reveal_prompts_dir(self) -> None:
@@ -210,6 +203,7 @@ class MacOSDictationRuntime:
         config.style.app_styles[app.bundle_id] = self.current_style_id
         self.apply_config(config, persist=True)
         style = self.styles.get(self.current_style_id)
+        self.update_app_binding_summary()
         self.tray.set_state(self.state.state.value, f"{app.app_name or app.bundle_id} -> {style.label}")
 
     def clear_current_app_style(self) -> None:
@@ -220,6 +214,7 @@ class MacOSDictationRuntime:
         config = self.config.model_copy(deep=True)
         removed = config.style.app_styles.pop(app.bundle_id, None)
         self.apply_config(config, persist=True)
+        self.update_app_binding_summary()
         detail = "已清除当前应用绑定" if removed else "当前应用没有绑定"
         self.tray.set_state(self.state.state.value, detail)
 
@@ -237,6 +232,7 @@ class MacOSDictationRuntime:
             self.current_style_id = style_id
             self.tray.set_styles(self.styles.all(), self.current_style_id)
             self.update_prompt_preview()
+            self.update_app_binding_summary()
 
     def copy_history_raw(self, record_id: str) -> None:
         self.copy_history_text(record_id, "raw_text", "已复制原始转写")
@@ -258,7 +254,22 @@ class MacOSDictationRuntime:
     def update_prompt_preview(self) -> None:
         style = self.styles.get(self.current_style_id)
         self.tray.set_prompt_preview(label=style.label, prompt=style.prompt)
-        self.tray.set_delete_prompt_enabled(style.source != "built-in")
+
+    def update_app_binding_summary(self) -> None:
+        app = self.app_provider.current_app()
+        if not app.bundle_id:
+            self.tray.set_app_binding_summary("当前应用绑定：未识别当前应用")
+            return
+        style_id = self.config.style.app_styles.get(app.bundle_id)
+        app_name = app.app_name or app.bundle_id
+        if not style_id:
+            self.tray.set_app_binding_summary(f"当前应用绑定：{app_name} 未绑定")
+            return
+        if self.styles.has(style_id):
+            label = self.styles.get(style_id).label
+        else:
+            label = f"{style_id}（不存在）"
+        self.tray.set_app_binding_summary(f"当前应用绑定：{app_name} -> {label}")
 
     def apply_config(self, config: AppConfig, *, persist: bool = False) -> None:
         old_config = self.config
@@ -271,9 +282,12 @@ class MacOSDictationRuntime:
         self.context_store.scope = config.context.scope.value
         self.styles = StyleRegistry(prompts_dir=config.style.prompts_dir)
         if not self.styles.has(self.current_style_id):
-            self.current_style_id = config.style.mode if self.styles.has(config.style.mode) else "polished"
+            self.current_style_id = (
+                config.style.mode if self.styles.has(config.style.mode) else self.styles.default_style_id()
+            )
         self.tray.set_styles(self.styles.all(), self.current_style_id)
         self.update_prompt_preview()
+        self.update_app_binding_summary()
         self.tray.set_status_config(config.status)
         if (
             old_config.hotkey.toggle != config.hotkey.toggle
@@ -322,6 +336,7 @@ class MacOSDictationRuntime:
             )
             self.tray.set_history_records([])
         self.update_prompt_preview()
+        self.update_app_binding_summary()
 
     def quit(self) -> None:
         from AppKit import NSApp

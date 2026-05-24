@@ -3,8 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from asr_evo.postprocess.prompts import STYLE_INSTRUCTIONS
-
 
 @dataclass(frozen=True)
 class StyleDefinition:
@@ -21,45 +19,41 @@ class StyleRegistry:
         self.reload()
 
     def reload(self) -> None:
-        styles = {
-            style_id: StyleDefinition(
-                id=style_id,
-                label=_title_from_id(style_id),
-                prompt=prompt,
-                source="built-in",
-            )
-            for style_id, prompt in STYLE_INSTRUCTIONS.items()
-        }
+        self._ensure_prompt_files()
+        styles = {}
         for prompt_file in self._prompt_files():
             prompt = prompt_file.read_text(encoding="utf-8").strip()
             if not prompt:
                 continue
-            style_id = f"file:{prompt_file.stem}"
+            style_id = _style_id_from_file(prompt_file)
             styles[style_id] = StyleDefinition(
                 id=style_id,
-                label=_title_from_id(prompt_file.stem),
+                label=prompt_file.name,
                 prompt=prompt,
                 source=str(prompt_file),
             )
         self._styles = styles
 
     def all(self) -> list[StyleDefinition]:
-        built_ins = [style for style in self._styles.values() if style.source == "built-in"]
-        custom = [style for style in self._styles.values() if style.source != "built-in"]
-        return sorted(built_ins, key=lambda style: style.id) + sorted(
-            custom,
-            key=lambda style: style.label.lower(),
-        )
+        return sorted(self._styles.values(), key=lambda style: style.label.lower())
 
     def get(self, style_id: str) -> StyleDefinition:
         if style_id in self._styles:
             return self._styles[style_id]
-        if style_id in STYLE_INSTRUCTIONS:
-            return self._styles[style_id]
-        return self._styles["polished"]
+        return self._styles[self.default_style_id()]
 
     def has(self, style_id: str) -> bool:
         return style_id in self._styles
+
+    def default_style_id(self) -> str:
+        if "polished" in self._styles:
+            return "polished"
+        styles = self.all()
+        if not styles:
+            self._write_default_prompt_files()
+            self.reload()
+            styles = self.all()
+        return styles[0].id
 
     def _prompt_files(self) -> list[Path]:
         if not self.prompts_dir.exists():
@@ -73,11 +67,26 @@ class StyleRegistry:
             and not path.name.startswith(".")
         ]
 
+    def _ensure_prompt_files(self) -> None:
+        if not self.prompts_dir.exists() or not self._prompt_files():
+            self._write_default_prompt_files()
 
-def _title_from_id(style_id: str) -> str:
-    labels = {
-        "exact": "精确保留",
-        "polished": "书面润色",
-        "concise": "简洁整理",
-    }
-    return labels.get(style_id, style_id.replace("_", " ").replace("-", " ").title())
+    def _write_default_prompt_files(self) -> None:
+        self.prompts_dir.mkdir(parents=True, exist_ok=True)
+        for style_id, prompt in DEFAULT_PROMPTS.items():
+            path = self.prompts_dir / f"{style_id}.txt"
+            if not path.exists():
+                path.write_text(prompt + "\n", encoding="utf-8")
+
+
+DEFAULT_PROMPTS: dict[str, str] = {
+    "exact": "尽量保留用户原意和表达，不主动扩写，只修正明显识别错误、标点和格式。只输出最终文本。",
+    "polished": "在不改变事实和语气的前提下，将文本整理为自然、清楚、适合书面表达的中文。只输出最终文本。",
+    "concise": "压缩冗余口语，使文本简洁直接，但不要丢失关键信息。只输出最终文本。",
+}
+
+
+def _style_id_from_file(path: Path) -> str:
+    if path.stem in DEFAULT_PROMPTS:
+        return path.stem
+    return f"file:{path.stem}"

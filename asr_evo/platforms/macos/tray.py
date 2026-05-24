@@ -25,14 +25,7 @@ class MacOSStatusTray:
         status_config: StatusConfig,
         styles: list[StyleDefinition],
         selected_style_id: str,
-        on_toggle: Callable[[], None],
         on_select_style: Callable[[str], None],
-        on_reload_styles: Callable[[], None],
-        on_set_context_ttl: Callable[[int], None],
-        on_set_context_items: Callable[[int], None],
-        on_set_hotkey_preset: Callable[[str, str], None],
-        on_new_prompt: Callable[[], None],
-        on_delete_prompt: Callable[[], None],
         on_reveal_prompts: Callable[[], None],
         on_reload_config: Callable[[], None],
         on_open_config: Callable[[], None],
@@ -59,43 +52,21 @@ class MacOSStatusTray:
         self.button.setTitle_("ASR")
         self.status_config = status_config
         self.on_select_style = on_select_style
-        self.on_reload_styles = on_reload_styles
-        self.on_set_context_ttl = on_set_context_ttl
-        self.on_set_context_items = on_set_context_items
-        self.on_set_hotkey_preset = on_set_hotkey_preset
         self.on_refresh_stats = on_refresh_stats
         self.on_copy_history_raw = on_copy_history_raw
         self.on_copy_history_final = on_copy_history_final
         self._style_targets: list[_MenuTargetItem] = []
-        self._setting_targets: list[_MenuTargetItem] = []
         self._history_targets: list[_MenuTargetItem] = []
-        self._style_prompt_items = 0
+        self._styles = styles
+        self._selected_style_id = selected_style_id
+        self._app_binding_title = "当前应用绑定：未检测"
 
         self.menu = NSMenu.alloc().init()
-        self.state_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
-            "空闲", None, ""
-        )
         self.hotkey_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
             f"快捷键：{hotkey_label}", None, ""
         )
-        self.toggle_item = _MenuTargetItem.create(
-            title="开始听写",
-            action=on_toggle,
-        )
-        self.reload_styles_item = _MenuTargetItem.create(
-            title="重新加载提示词",
-            action=on_reload_styles,
-        )
-        self.new_prompt_item = _MenuTargetItem.create(
-            title="新建提示词模板",
-            action=on_new_prompt,
-        )
-        self.delete_prompt_item = _MenuTargetItem.create(
-            title="删除当前自定义提示词",
-            action=on_delete_prompt,
-        )
         self.reveal_prompts_item = _MenuTargetItem.create(
-            title="在 Finder 中打开提示词目录",
+            title="打开提示词文件夹",
             action=on_reveal_prompts,
         )
         self.bind_style_item = _MenuTargetItem.create(
@@ -114,18 +85,10 @@ class MacOSStatusTray:
             title="打开配置文件",
             action=on_open_config,
         )
-        self.settings_reload_config_item = _MenuTargetItem.create(
-            title="重新加载配置",
-            action=on_reload_config,
-        )
-        self.settings_open_config_item = _MenuTargetItem.create(
-            title="打开配置文件",
-            action=on_open_config,
-        )
         self.settings_menu_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
-            "设置", None, ""
+            "配置摘要", None, ""
         )
-        self.settings_menu = NSMenu.alloc().initWithTitle_("设置")
+        self.settings_menu = NSMenu.alloc().initWithTitle_("配置摘要")
         self.settings_menu_item.setSubmenu_(self.settings_menu)
         self.stats_menu_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
             "听写统计", None, ""
@@ -152,10 +115,7 @@ class MacOSStatusTray:
             action=on_quit,
         )
 
-        self.menu.addItem_(self.state_item)
         self.menu.addItem_(self.hotkey_item)
-        self.menu.addItem_(NSMenuItem.separatorItem())
-        self.menu.addItem_(self.toggle_item.item)
         self.menu.addItem_(self.prompt_menu_item)
         self.menu.addItem_(NSMenuItem.separatorItem())
         self.menu.addItem_(self.settings_menu_item)
@@ -177,9 +137,10 @@ class MacOSStatusTray:
         title_map = _status_icon_map(self.status_config)
         text_map = _status_text_map(self.status_config)
         self.button.setTitle_(title_map.get(state, "ASR"))
-        suffix = f"：{detail}" if detail else ""
-        self.state_item.setTitle_(f"{text_map.get(state, state)}{suffix}")
-        self.toggle_item.item.setTitle_("停止录音" if state == "recording" else "开始听写")
+        status_text = text_map.get(state, state)
+        if detail:
+            status_text = f"{status_text}：{detail}"
+        self.button.setToolTip_(status_text)
 
     def set_styles(self, styles: list[StyleDefinition], selected_style_id: str) -> None:
         if current_thread() is not main_thread():
@@ -189,6 +150,8 @@ class MacOSStatusTray:
             return
         from AppKit import NSMenuItem
 
+        self._styles = styles
+        self._selected_style_id = selected_style_id
         self.prompt_menu.removeAllItems()
         self._style_targets = []
         for group_index, group in enumerate(_group_styles(styles)):
@@ -211,13 +174,19 @@ class MacOSStatusTray:
                         preview_item.setEnabled_(False)
                         self.prompt_menu.addItem_(preview_item)
         self.prompt_menu.addItem_(NSMenuItem.separatorItem())
-        self.prompt_menu.addItem_(self.reload_styles_item.item)
-        self.prompt_menu.addItem_(self.new_prompt_item.item)
-        self.prompt_menu.addItem_(self.delete_prompt_item.item)
-        self.prompt_menu.addItem_(NSMenuItem.separatorItem())
+        binding_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+            self._app_binding_title, None, ""
+        )
+        binding_item.setEnabled_(False)
+        self.prompt_menu.addItem_(binding_item)
         self.prompt_menu.addItem_(self.bind_style_item.item)
         self.prompt_menu.addItem_(self.clear_app_style_item.item)
+        self.prompt_menu.addItem_(NSMenuItem.separatorItem())
         self.prompt_menu.addItem_(self.reveal_prompts_item.item)
+
+    def set_app_binding_summary(self, title: str) -> None:
+        self._app_binding_title = title
+        self.set_styles(self._styles, self._selected_style_id)
 
     def set_status_config(self, status_config: StatusConfig) -> None:
         self.status_config = status_config
@@ -249,9 +218,8 @@ class MacOSStatusTray:
         from AppKit import NSMenuItem
 
         self.settings_menu.removeAllItems()
-        self._setting_targets = []
         help_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
-            "说明：灰色项目显示当前值；带勾项目点击后立即生效", None, ""
+            "配置修改请编辑 config.toml，然后点击主菜单“重新加载配置”", None, ""
         )
         help_item.setEnabled_(False)
         self.settings_menu.addItem_(help_item)
@@ -268,42 +236,11 @@ class MacOSStatusTray:
             item.setEnabled_(False)
             self.settings_menu.addItem_(item)
         self.settings_menu.addItem_(NSMenuItem.separatorItem())
-        for title, seconds in [("TTL 5 分钟", 300), ("TTL 10 分钟", 600), ("TTL 30 分钟", 1800)]:
-            target = _MenuTargetItem.create_with_arg(
-                title=title,
-                action=self.on_set_context_ttl,
-                arg=seconds,
-            )
-            target.item.setState_(1 if ttl_seconds == seconds else 0)
-            self.settings_menu.addItem_(target.item)
-            self._setting_targets.append(target)
-        self.settings_menu.addItem_(NSMenuItem.separatorItem())
-        for title, count in [("历史上下文 10 条", 10), ("历史上下文 20 条", 20), ("历史上下文 50 条", 50)]:
-            target = _MenuTargetItem.create_with_arg(
-                title=title,
-                action=self.on_set_context_items,
-                arg=count,
-            )
-            target.item.setState_(1 if max_items == count else 0)
-            self.settings_menu.addItem_(target.item)
-            self._setting_targets.append(target)
-        self.settings_menu.addItem_(NSMenuItem.separatorItem())
-        hotkeys = [
-            ("切换：Cmd+Shift+Space", ("cmd+shift+space", "toggle")),
-            ("按住：地球仪键", ("globe", "hold")),
-        ]
-        for title, preset in hotkeys:
-            target = _MenuTargetItem.create_with_arg(
-                title=title,
-                action=lambda value: self.on_set_hotkey_preset(value[0], value[1]),
-                arg=preset,
-            )
-            target.item.setState_(1 if (hotkey, hotkey_mode) == preset else 0)
-            self.settings_menu.addItem_(target.item)
-            self._setting_targets.append(target)
-        self.settings_menu.addItem_(NSMenuItem.separatorItem())
-        self.settings_menu.addItem_(self.settings_open_config_item.item)
-        self.settings_menu.addItem_(self.settings_reload_config_item.item)
+        note = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+            "托盘不直接修改这些设置，避免运行中配置状态不一致", None, ""
+        )
+        note.setEnabled_(False)
+        self.settings_menu.addItem_(note)
 
     def set_stats(self, *, totals: dict[str, int | float], app_stats: list[AppStats]) -> None:
         if current_thread() is not main_thread():
@@ -389,9 +326,6 @@ class MacOSStatusTray:
         # Prompt preview is rendered inline by set_styles() under the selected style.
         return
 
-    def set_delete_prompt_enabled(self, enabled: bool) -> None:
-        self.delete_prompt_item.item.setEnabled_(enabled)
-
 
 @dataclass(frozen=True)
 class _StyleGroup:
@@ -399,14 +333,7 @@ class _StyleGroup:
 
 
 def _group_styles(styles: list[StyleDefinition]) -> list[_StyleGroup]:
-    built_in = [style for style in styles if style.source == "built-in"]
-    custom = [style for style in styles if style.source != "built-in"]
-    groups = []
-    if built_in:
-        groups.append(_StyleGroup(built_in))
-    if custom:
-        groups.append(_StyleGroup(custom))
-    return groups
+    return [_StyleGroup(styles)] if styles else []
 
 
 class _MenuTargetItem:
