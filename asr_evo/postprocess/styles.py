@@ -67,7 +67,10 @@ class StyleRegistry:
         return [
             path
             for path in self.prompts_dir.iterdir()
-            if path.is_file() and path.suffix.lower() in {".txt", ".md"}
+            if path.is_file()
+            and path.suffix.lower() in {".txt", ".md"}
+            and path.stem.lower() != "readme"
+            and not path.name.startswith(".")
         ]
 
 

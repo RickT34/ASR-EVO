@@ -14,43 +14,62 @@ class SettingsWindow:
         config_path: str = "config.toml",
         on_saved: Callable[[AppConfig], None] | None = None,
     ) -> None:
-        from AppKit import NSButton, NSMakeRect, NSTextField, NSWindow, NSWindowStyleMaskTitled
+        from AppKit import (
+            NSButton,
+            NSMakeRect,
+            NSTextField,
+            NSWindow,
+            NSWindowStyleMaskClosable,
+            NSWindowStyleMaskMiniaturizable,
+            NSWindowStyleMaskResizable,
+            NSWindowStyleMaskTitled,
+        )
 
         self.config = config
         self.config_path = config_path
         self.on_saved = on_saved
         self.fields = {}
         self.window = NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(
-            NSMakeRect(0, 0, 520, 360),
-            NSWindowStyleMaskTitled,
+            NSMakeRect(0, 0, 560, 420),
+            NSWindowStyleMaskTitled
+            | NSWindowStyleMaskClosable
+            | NSWindowStyleMaskMiniaturizable
+            | NSWindowStyleMaskResizable,
             2,
             False,
         )
+        self.window.setReleasedWhenClosed_(False)
         self.window.setTitle_("ASR-EVO 设置")
         content = self.window.contentView()
 
         rows = [
             ("DASHSCOPE API Key", "api_key", config.llm_api_key() or ""),
             ("快捷键", "hotkey", config.hotkey.toggle),
+            ("快捷键模式(toggle/hold)", "hotkey_mode", config.hotkey.mode),
             ("上下文 TTL 秒数", "ttl", str(config.context.ttl_seconds)),
             ("历史上下文条数", "max_items", str(config.context.max_items)),
             ("上下文字符上限", "max_chars", str(config.context.max_chars)),
             ("提示词目录", "prompts_dir", config.style.prompts_dir),
             ("历史数据库", "database_path", config.storage.database_path),
         ]
-        y = 310
+        title = NSTextField.labelWithString_("常用设置")
+        title.setFrame_(NSMakeRect(24, 372, 200, 26))
+        title.setFont_(title.font().boldSystemFontOfSize_(16))
+        content.addSubview_(title)
+
+        y = 330
         for label, key, value in rows:
             label_view = NSTextField.labelWithString_(label)
-            label_view.setFrame_(NSMakeRect(24, y, 140, 24))
+            label_view.setFrame_(NSMakeRect(28, y, 150, 24))
             content.addSubview_(label_view)
-            field = NSTextField.alloc().initWithFrame_(NSMakeRect(170, y, 320, 24))
+            field = NSTextField.alloc().initWithFrame_(NSMakeRect(190, y, 330, 26))
             field.setStringValue_(value)
             content.addSubview_(field)
             self.fields[key] = field
-            y -= 38
+            y -= 40
 
         self.save_target = _WindowActionTarget.alloc().initWithCallback_(self.save)
-        button = NSButton.alloc().initWithFrame_(NSMakeRect(390, 20, 100, 32))
+        button = NSButton.alloc().initWithFrame_(NSMakeRect(420, 22, 100, 32))
         button.setTitle_("保存")
         button.setTarget_(self.save_target)
         button.setAction_("perform:")
@@ -63,6 +82,7 @@ class SettingsWindow:
     def save(self) -> None:
         data = self.config.model_copy(deep=True)
         data.hotkey.toggle = self.fields["hotkey"].stringValue()
+        data.hotkey.mode = self.fields["hotkey_mode"].stringValue()
         data.context.ttl_seconds = int(self.fields["ttl"].stringValue())
         data.context.max_items = int(self.fields["max_items"].stringValue())
         data.context.max_chars = int(self.fields["max_chars"].stringValue())
@@ -79,15 +99,28 @@ class SettingsWindow:
 
 class HistoryWindow:
     def __init__(self, history: HistoryStore) -> None:
-        from AppKit import NSMakeRect, NSScrollView, NSTextView, NSWindow, NSWindowStyleMaskTitled
+        from AppKit import (
+            NSMakeRect,
+            NSScrollView,
+            NSTextView,
+            NSWindow,
+            NSWindowStyleMaskClosable,
+            NSWindowStyleMaskMiniaturizable,
+            NSWindowStyleMaskResizable,
+            NSWindowStyleMaskTitled,
+        )
 
         self.history = history
         self.window = NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(
             NSMakeRect(0, 0, 720, 520),
-            NSWindowStyleMaskTitled,
+            NSWindowStyleMaskTitled
+            | NSWindowStyleMaskClosable
+            | NSWindowStyleMaskMiniaturizable
+            | NSWindowStyleMaskResizable,
             2,
             False,
         )
+        self.window.setReleasedWhenClosed_(False)
         self.window.setTitle_("ASR-EVO 听写历史与统计")
         self.text_view = NSTextView.alloc().initWithFrame_(NSMakeRect(0, 0, 700, 500))
         self.text_view.setEditable_(False)

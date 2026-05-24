@@ -72,8 +72,11 @@ class MacOSDictationRuntime:
             on_quit=self.quit,
         )
         self.tray_proxy = _StateTrackingTray(self)
-        self.hotkey = MacOSHotkeyService(config.hotkey.toggle)
-        self.hotkey.on_toggle(self.toggle_dictation)
+        self.hotkey = MacOSHotkeyService(config.hotkey.toggle, mode=config.hotkey.mode)
+        if config.hotkey.mode == "hold":
+            self.hotkey.on_press_release(self.start_dictation, self.stop_dictation)
+        else:
+            self.hotkey.on_toggle(self.toggle_dictation)
         self.permissions = MacOSPermissions()
 
     def run(self) -> None:
@@ -89,8 +92,11 @@ class MacOSDictationRuntime:
 
     def toggle_dictation(self) -> None:
         if self.state.state == DictationState.RECORDING:
-            self.recorder.stop()
+            self.stop_dictation()
             return
+        self.start_dictation()
+
+    def start_dictation(self) -> None:
         if self.state.state != DictationState.IDLE:
             self.tray.set_state(self.state.state.value, "busy")
             return
@@ -99,6 +105,10 @@ class MacOSDictationRuntime:
         self.tray.set_state(DictationState.RECORDING.value)
         future = asyncio.run_coroutine_threadsafe(self._run_pipeline(), self.loop)
         self.state.task = future
+
+    def stop_dictation(self) -> None:
+        if self.state.state == DictationState.RECORDING:
+            self.recorder.stop()
 
     def select_style(self, style_id: str) -> None:
         if not self.styles.has(style_id):

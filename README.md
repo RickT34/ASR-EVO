@@ -61,7 +61,25 @@ prompts_dir = "prompts"
 - 提示词目录
 - 历史数据库路径
 
-保存后会写入 `config.toml` 和 `.env`。部分设置对下一次听写立即生效；如果修改 API endpoint/model 这类 provider 初始化参数，建议重启应用。
+保存后会写入 `config.toml` 和 `.env`。TTL、历史长度、提示词目录会影响后续听写；快捷键、API endpoint/model 这类运行时初始化参数建议重启应用。
+
+快捷键支持两种模式：
+
+```toml
+[hotkey]
+toggle = "cmd+shift+space"
+mode = "toggle"
+```
+
+如果想按住地球仪键听写、松开停止，改成：
+
+```toml
+[hotkey]
+toggle = "globe"
+mode = "hold"
+```
+
+`globe` 和 `fn` 等价。由于 macOS 会把地球仪键作为 Fn 标志处理，具体行为还取决于系统设置中的“按下地球仪键”配置；如果系统抢占了该键，需要在系统设置里关闭或调整相关快捷功能。
 
 ## macOS Insertion Strategy
 

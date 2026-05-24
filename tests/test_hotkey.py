@@ -8,3 +8,11 @@ def test_hotkey_parse_aliases() -> None:
 
     assert spec.keycode == 49
     assert spec.modifiers == frozenset({"cmd", "shift"})
+
+
+def test_hotkey_parse_globe_hold() -> None:
+    spec = HotkeySpec.parse("globe")
+
+    assert spec.keycode is None
+    assert spec.hold_modifier == "fn"
+    assert spec.is_modifier_only

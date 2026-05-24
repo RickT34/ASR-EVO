@@ -10,13 +10,16 @@ def test_style_registry_loads_prompt_files(tmp_path: Path) -> None:
     prompts.mkdir()
     (prompts / "work-chat.txt").write_text("Make it polite.", encoding="utf-8")
     (prompts / "empty.md").write_text("  ", encoding="utf-8")
+    (prompts / "README.md").write_text("Docs only.", encoding="utf-8")
 
     registry = StyleRegistry(prompts_dir=prompts)
 
     style = registry.get("file:work-chat")
     assert style.label == "Work Chat"
     assert style.prompt == "Make it polite."
-    assert "file:empty" not in [item.id for item in registry.all()]
+    style_ids = [item.id for item in registry.all()]
+    assert "file:empty" not in style_ids
+    assert "file:README" not in style_ids
 
 
 def test_style_registry_falls_back_to_polished(tmp_path: Path) -> None:

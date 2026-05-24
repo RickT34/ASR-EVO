@@ -17,6 +17,7 @@ class ContextScope(StrEnum):
 
 class HotkeyConfig(BaseModel):
     toggle: str = "cmd+shift+space"
+    mode: str = "toggle"
 
 
 class ASRConfig(BaseModel):

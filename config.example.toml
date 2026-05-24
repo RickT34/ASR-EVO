@@ -1,5 +1,6 @@
 [hotkey]
 toggle = "cmd+shift+space"
+mode = "toggle"
 
 [asr]
 provider = "aliyun"
