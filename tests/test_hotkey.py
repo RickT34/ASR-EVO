@@ -16,3 +16,10 @@ def test_hotkey_parse_globe_hold() -> None:
     assert spec.keycode is None
     assert spec.hold_modifier == "fn"
     assert spec.is_modifier_only
+
+
+def test_non_modifier_hold_matches_keycode() -> None:
+    spec = HotkeySpec.parse("cmd+shift+space")
+
+    assert spec.keycode == 49
+    assert not spec.is_modifier_only

@@ -72,11 +72,7 @@ class MacOSDictationRuntime:
             on_quit=self.quit,
         )
         self.tray_proxy = _StateTrackingTray(self)
-        self.hotkey = MacOSHotkeyService(config.hotkey.toggle, mode=config.hotkey.mode)
-        if config.hotkey.mode == "hold":
-            self.hotkey.on_press_release(self.start_dictation, self.stop_dictation)
-        else:
-            self.hotkey.on_toggle(self.toggle_dictation)
+        self.hotkey = self._create_hotkey(config)
         self.permissions = MacOSPermissions()
 
     def run(self) -> None:
@@ -141,6 +137,7 @@ class MacOSDictationRuntime:
         self.history_window.show()
 
     def apply_config(self, config: AppConfig) -> None:
+        old_config = self.config
         self.config = config
         self.context_store.ttl = timedelta(seconds=config.context.ttl_seconds)
         self.context_store.max_items = config.context.max_items
@@ -150,8 +147,29 @@ class MacOSDictationRuntime:
         if not self.styles.has(self.current_style_id):
             self.current_style_id = config.style.mode if self.styles.has(config.style.mode) else "polished"
         self.tray.set_styles(self.styles.all(), self.current_style_id)
-        if config.storage.enabled and self.history_store is None:
+        if (
+            old_config.hotkey.toggle != config.hotkey.toggle
+            or old_config.hotkey.mode != config.hotkey.mode
+        ):
+            self.hotkey.stop()
+            self.hotkey = self._create_hotkey(config)
+            self.hotkey.start()
+            self.tray.hotkey_item.setTitle_(f"快捷键：{config.hotkey.toggle} ({config.hotkey.mode})")
+        if not config.storage.enabled:
+            self.history_store = None
+        elif (
+            self.history_store is None
+            or old_config.storage.database_path != config.storage.database_path
+        ):
             self.history_store = HistoryStore(config.storage.database_path)
+
+    def _create_hotkey(self, config: AppConfig) -> MacOSHotkeyService:
+        hotkey = MacOSHotkeyService(config.hotkey.toggle, mode=config.hotkey.mode)
+        if config.hotkey.mode == "hold":
+            hotkey.on_press_release(self.start_dictation, self.stop_dictation)
+        else:
+            hotkey.on_toggle(self.toggle_dictation)
+        return hotkey
 
     def quit(self) -> None:
         from AppKit import NSApp

@@ -30,7 +30,7 @@ class MacOSHotkeyService:
         Quartz = self._Quartz
         mask = Quartz.CGEventMaskBit(Quartz.kCGEventKeyDown) | Quartz.CGEventMaskBit(
             Quartz.kCGEventFlagsChanged
-        )
+        ) | Quartz.CGEventMaskBit(Quartz.kCGEventKeyUp)
         self._tap = Quartz.CGEventTapCreate(
             Quartz.kCGSessionEventTap,
             Quartz.kCGHeadInsertEventTap,
@@ -89,9 +89,17 @@ class MacOSHotkeyService:
                 return None
         if event_type == Quartz.kCGEventKeyDown and not self.spec.is_modifier_only:
             keycode = Quartz.CGEventGetIntegerValueField(event, Quartz.kCGKeyboardEventKeycode)
-            if self.spec.matches(keycode=keycode, flags=flags, Quartz=Quartz):
+            if self.spec.matches(keycode=keycode, flags=flags, Quartz=Quartz) and not self._pressed:
+                self._pressed = True
                 if self._on_press is not None:
                     self._on_press()
+                return None
+        if event_type == Quartz.kCGEventKeyUp and not self.spec.is_modifier_only:
+            keycode = Quartz.CGEventGetIntegerValueField(event, Quartz.kCGKeyboardEventKeycode)
+            if keycode == self.spec.keycode and self._pressed:
+                self._pressed = False
+                if self._on_release is not None:
+                    self._on_release()
                 return None
         return event
 

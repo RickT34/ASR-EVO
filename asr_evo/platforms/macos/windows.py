@@ -6,6 +6,23 @@ from asr_evo.config import AppConfig, save_env_value
 from asr_evo.storage.history import HistoryStore, format_datetime
 
 
+def _activate_window(window) -> None:
+    from AppKit import (
+        NSApp,
+        NSApplication,
+        NSApplicationActivateIgnoringOtherApps,
+        NSApplicationActivationPolicyRegular,
+        NSFloatingWindowLevel,
+    )
+
+    NSApplication.sharedApplication().setActivationPolicy_(NSApplicationActivationPolicyRegular)
+    window.setLevel_(NSFloatingWindowLevel)
+    window.center()
+    window.makeKeyAndOrderFront_(None)
+    NSApp.activateIgnoringOtherApps_(True)
+    NSApp.activateWithOptions_(NSApplicationActivateIgnoringOtherApps)
+
+
 class SettingsWindow:
     def __init__(
         self,
@@ -74,27 +91,37 @@ class SettingsWindow:
         button.setTarget_(self.save_target)
         button.setAction_("perform:")
         content.addSubview_(button)
+        self.status_label = NSTextField.labelWithString_("")
+        self.status_label.setFrame_(NSMakeRect(28, 24, 360, 24))
+        content.addSubview_(self.status_label)
 
     def show(self) -> None:
-        self.window.center()
-        self.window.makeKeyAndOrderFront_(None)
+        _activate_window(self.window)
 
     def save(self) -> None:
-        data = self.config.model_copy(deep=True)
-        data.hotkey.toggle = self.fields["hotkey"].stringValue()
-        data.hotkey.mode = self.fields["hotkey_mode"].stringValue()
-        data.context.ttl_seconds = int(self.fields["ttl"].stringValue())
-        data.context.max_items = int(self.fields["max_items"].stringValue())
-        data.context.max_chars = int(self.fields["max_chars"].stringValue())
-        data.style.prompts_dir = self.fields["prompts_dir"].stringValue()
-        data.storage.database_path = self.fields["database_path"].stringValue()
-        api_key = self.fields["api_key"].stringValue().strip()
-        if api_key:
-            save_env_value(data.llm.api_key_env, api_key)
-        data.save(self.config_path)
-        self.config = data
-        if self.on_saved:
-            self.on_saved(data)
+        try:
+            data = self._build_config()
+            api_key = self.fields["api_key"].stringValue().strip()
+            if api_key:
+                save_env_value(data.llm.api_key_env, api_key)
+            data.save(self.config_path)
+            self.config = data
+            if self.on_saved:
+                self.on_saved(data)
+            self.status_label.setStringValue_("已保存")
+        except Exception as exc:
+            self.status_label.setStringValue_(f"保存失败：{exc}")
+
+    def _build_config(self) -> AppConfig:
+        current = self.config.model_dump(mode="json")
+        current["hotkey"]["toggle"] = self.fields["hotkey"].stringValue()
+        current["hotkey"]["mode"] = self.fields["hotkey_mode"].stringValue()
+        current["context"]["ttl_seconds"] = int(self.fields["ttl"].stringValue())
+        current["context"]["max_items"] = int(self.fields["max_items"].stringValue())
+        current["context"]["max_chars"] = int(self.fields["max_chars"].stringValue())
+        current["style"]["prompts_dir"] = self.fields["prompts_dir"].stringValue()
+        current["storage"]["database_path"] = self.fields["database_path"].stringValue()
+        return AppConfig.model_validate(current)
 
 
 class HistoryWindow:
@@ -131,8 +158,7 @@ class HistoryWindow:
 
     def show(self) -> None:
         self.refresh()
-        self.window.center()
-        self.window.makeKeyAndOrderFront_(None)
+        _activate_window(self.window)
 
     def refresh(self) -> None:
         totals = self.history.totals()
