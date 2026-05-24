@@ -105,3 +105,15 @@ You can test provider credentials with an existing audio file before using the h
 ```bash
 .venv/bin/asr-evo-transcribe /path/to/audio.wav
 ```
+
+You can test only the macOS insertion layer by focusing a text field and running:
+
+```bash
+.venv/bin/asr-evo-insert-test "hello from ASR-EVO"
+```
+
+If native insertion fails in a specific app, try the explicit clipboard-restore fallback:
+
+```bash
+.venv/bin/asr-evo-insert-test "hello from ASR-EVO" --fallback clipboard_restore
+```

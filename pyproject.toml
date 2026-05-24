@@ -32,6 +32,7 @@ dev = [
 [project.scripts]
 asr-evo = "asr_evo.app:main"
 asr-evo-transcribe = "asr_evo.cli.transcribe_file:main"
+asr-evo-insert-test = "asr_evo.cli.insert_test:main"
 
 [tool.setuptools.packages.find]
 include = ["asr_evo*"]

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import sys
 import threading
 from dataclasses import dataclass
@@ -75,6 +76,8 @@ class MacOSDictationRuntime:
             self.tray.set_state(self.state.state.value, "busy")
             return
 
+        self.state.state = DictationState.RECORDING
+        self.tray.set_state(DictationState.RECORDING.value)
         future = asyncio.run_coroutine_threadsafe(self._run_pipeline(), self.loop)
         self.state.task = future
 
@@ -84,7 +87,11 @@ class MacOSDictationRuntime:
         self.hotkey.stop()
         if self.state.state == DictationState.RECORDING:
             self.recorder.stop()
-        asyncio.run_coroutine_threadsafe(self._close_clients(), self.loop)
+        future = asyncio.run_coroutine_threadsafe(self._close_clients(), self.loop)
+        try:
+            future.result(timeout=2)
+        except (TimeoutError, concurrent.futures.TimeoutError):
+            pass
         self.loop.call_soon_threadsafe(self.loop.stop)
         NSApp.terminate_(None)
 
@@ -94,12 +101,13 @@ class MacOSDictationRuntime:
                 recorder=self.recorder,
                 asr=self.asr_provider,
                 llm=self.llm_provider,
-                inserter=MacOSTextInserter(),
+                inserter=MacOSTextInserter(fallback=self.config.insert.fallback),
                 app_provider=MacOSFrontmostAppProvider(),
                 context_store=self.context_store,
                 tray=self.tray_proxy,
                 style=self.config.style.mode,
                 custom_prompt=self.config.style.custom_prompt,
+                context_enabled=self.config.context.enabled,
             )
             await pipeline.run_once()
         except Exception as exc:

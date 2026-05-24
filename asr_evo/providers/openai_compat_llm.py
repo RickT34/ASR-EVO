@@ -3,6 +3,7 @@ from __future__ import annotations
 import httpx
 
 from asr_evo.postprocess.prompts import build_polish_messages
+from asr_evo.providers.http_retry import raise_provider_status, with_http_retries
 
 
 class OpenAICompatibleLLMProvider:
@@ -28,15 +29,15 @@ class OpenAICompatibleLLMProvider:
             style=style,
             custom_prompt=custom_prompt,
         )
-        response = await self.client.post(
-            "/chat/completions",
-            json={
-                "model": self.model,
-                "messages": messages,
-                "temperature": 0.2,
-            },
+        payload = {
+            "model": self.model,
+            "messages": messages,
+            "temperature": 0.2,
+        }
+        response = await with_http_retries(
+            lambda: self.client.post("/chat/completions", json=payload)
         )
-        response.raise_for_status()
+        raise_provider_status(response)
         data = response.json()
         return data["choices"][0]["message"]["content"].strip()
 

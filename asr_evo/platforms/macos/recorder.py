@@ -18,11 +18,15 @@ class SoundDeviceRecorder:
         self._frames: list = []
         self._stop_event: asyncio.Event | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
+        self._stop_requested = False
 
     async def record_until_stopped(self) -> AudioClip:
         self._frames = []
         self._loop = asyncio.get_running_loop()
         self._stop_event = asyncio.Event()
+        if self._stop_requested:
+            self._stop_requested = False
+            self._stop_event.set()
         fd, raw_path = tempfile.mkstemp(prefix="asr-evo-", suffix=".wav")
         os.close(fd)
         path = Path(raw_path)
@@ -38,6 +42,7 @@ class SoundDeviceRecorder:
             callback=callback,
         ):
             await self._stop_event.wait()
+        self._stop_requested = False
 
         if not self._frames:
             sf.write(path, [], self.sample_rate)
@@ -54,6 +59,7 @@ class SoundDeviceRecorder:
         )
 
     def stop(self) -> None:
+        self._stop_requested = True
         if self._stop_event is not None:
             if self._loop and self._loop.is_running():
                 self._loop.call_soon_threadsafe(self._stop_event.set)

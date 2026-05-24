@@ -7,6 +7,7 @@ from pathlib import Path
 import httpx
 
 from asr_evo.core.ports import AudioClip, Transcript
+from asr_evo.providers.http_retry import raise_provider_status, with_http_retries
 
 
 class AliyunASRProvider:
@@ -48,28 +49,28 @@ class AliyunASRProvider:
         if size > self.max_audio_bytes:
             raise ValueError(f"Audio file is {size} bytes, exceeding configured ASR limit")
 
-        response = await self.client.post(
-            "/chat/completions",
-            json={
-                "model": self.model,
-                "messages": [
-                    {
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "input_audio",
-                                "input_audio": {
-                                    "data": self._audio_data_url(audio_path),
-                                },
-                            }
-                        ],
-                    }
-                ],
-                "asr_options": self._asr_options(),
-                "stream": False,
-            },
+        payload = {
+            "model": self.model,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "input_audio",
+                            "input_audio": {
+                                "data": self._audio_data_url(audio_path),
+                            },
+                        }
+                    ],
+                }
+            ],
+            "asr_options": self._asr_options(),
+            "stream": False,
+        }
+        response = await with_http_retries(
+            lambda: self.client.post("/chat/completions", json=payload)
         )
-        response.raise_for_status()
+        raise_provider_status(response)
         data = response.json()
         message = data["choices"][0]["message"]
         language = None
