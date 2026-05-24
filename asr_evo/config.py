@@ -39,6 +39,7 @@ class LLMConfig(BaseModel):
 class StyleConfig(BaseModel):
     mode: str = "polished"
     custom_prompt: str = ""
+    prompts_dir: str = "prompts"
 
 
 class ContextConfig(BaseModel):

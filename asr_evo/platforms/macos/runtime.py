@@ -10,6 +10,7 @@ from asr_evo.config import AppConfig
 from asr_evo.core.context import ContextStore
 from asr_evo.core.pipeline import DictationPipeline
 from asr_evo.core.state import DictationState
+from asr_evo.postprocess.styles import StyleRegistry
 from asr_evo.platforms.macos.frontmost import MacOSFrontmostAppProvider
 from asr_evo.platforms.macos.hotkey import MacOSHotkeyService
 from asr_evo.platforms.macos.inserter import MacOSTextInserter
@@ -34,6 +35,10 @@ class MacOSDictationRuntime:
         self.state = RuntimeState()
         self.loop = asyncio.new_event_loop()
         self.loop_thread = threading.Thread(target=self._run_loop, name="asr-evo-async", daemon=True)
+        self.styles = StyleRegistry(prompts_dir=config.style.prompts_dir)
+        self.current_style_id = (
+            config.style.mode if self.styles.has(config.style.mode) else "polished"
+        )
 
         self.recorder = SoundDeviceRecorder(
             sample_rate=config.audio.sample_rate,
@@ -49,7 +54,11 @@ class MacOSDictationRuntime:
         self.llm_provider = create_llm_provider(self.config)
         self.tray = MacOSStatusTray(
             hotkey_label=config.hotkey.toggle,
+            styles=self.styles.all(),
+            selected_style_id=self.current_style_id,
             on_toggle=self.toggle_dictation,
+            on_select_style=self.select_style,
+            on_reload_styles=self.reload_styles,
             on_quit=self.quit,
         )
         self.tray_proxy = _StateTrackingTray(self)
@@ -81,6 +90,22 @@ class MacOSDictationRuntime:
         future = asyncio.run_coroutine_threadsafe(self._run_pipeline(), self.loop)
         self.state.task = future
 
+    def select_style(self, style_id: str) -> None:
+        if not self.styles.has(style_id):
+            self.reload_styles()
+            if not self.styles.has(style_id):
+                self.tray.set_state(DictationState.ERROR.value, f"style not found: {style_id}")
+                return
+        self.current_style_id = style_id
+        self.tray.set_styles(self.styles.all(), self.current_style_id)
+        self.tray.set_state(self.state.state.value, f"style: {self.styles.get(style_id).label}")
+
+    def reload_styles(self) -> None:
+        self.styles.reload()
+        if not self.styles.has(self.current_style_id):
+            self.current_style_id = "polished"
+        self.tray.set_styles(self.styles.all(), self.current_style_id)
+
     def quit(self) -> None:
         from AppKit import NSApp
 
@@ -97,6 +122,7 @@ class MacOSDictationRuntime:
 
     async def _run_pipeline(self) -> None:
         try:
+            style = self.styles.get(self.current_style_id)
             pipeline = DictationPipeline(
                 recorder=self.recorder,
                 asr=self.asr_provider,
@@ -109,8 +135,8 @@ class MacOSDictationRuntime:
                 app_provider=MacOSFrontmostAppProvider(),
                 context_store=self.context_store,
                 tray=self.tray_proxy,
-                style=self.config.style.mode,
-                custom_prompt=self.config.style.custom_prompt,
+                style=style.id,
+                custom_prompt=self.config.style.custom_prompt or style.prompt,
                 context_enabled=self.config.context.enabled,
             )
             await pipeline.run_once()

@@ -28,6 +28,27 @@ History is stored in memory by default. Records are filtered by both time and sc
 
 This keeps frequent dictation fast and avoids sending unrelated history to the LLM.
 
+## Style Switching
+
+The menu bar app has a `Style` submenu. Built-in styles are:
+
+- `Exact`: preserve wording, only fix obvious recognition errors and punctuation.
+- `Polished`: rewrite into clear written Chinese without changing meaning.
+- `Concise`: remove filler and keep the result compact.
+
+Custom styles are loaded from the configured prompt directory:
+
+```toml
+[style]
+mode = "polished"
+custom_prompt = ""
+prompts_dir = "prompts"
+```
+
+Put `.txt` or `.md` files into `prompts/`. Each non-empty file becomes a style in the tray menu; `work-chat.txt` appears as `Work Chat`.
+
+If `custom_prompt` is non-empty, it acts as a global override for all style selections. Leave it empty to use the selected built-in or file-based style.
+
 ## macOS Insertion Strategy
 
 The default insertion path uses temporary pasteboard insertion with restoration:

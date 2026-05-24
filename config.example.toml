@@ -17,6 +17,7 @@ model = "qwen-plus"
 [style]
 mode = "polished"
 custom_prompt = ""
+prompts_dir = "prompts"
 
 [context]
 enabled = true
