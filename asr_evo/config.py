@@ -1,0 +1,74 @@
+from __future__ import annotations
+
+import os
+import tomllib
+from enum import StrEnum
+from pathlib import Path
+
+from dotenv import load_dotenv
+from pydantic import BaseModel, Field
+
+
+class ContextScope(StrEnum):
+    TIME = "time"
+    APP = "app"
+    WINDOW = "window"
+
+
+class HotkeyConfig(BaseModel):
+    toggle: str = "cmd+shift+space"
+
+
+class ASRConfig(BaseModel):
+    provider: str = "aliyun"
+    model: str = "qwen3-asr-flash"
+    api_key_env: str = "DASHSCOPE_API_KEY"
+
+
+class LLMConfig(BaseModel):
+    provider: str = "openai_compat"
+    base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    model: str = "qwen-plus"
+    api_key_env: str = "DASHSCOPE_API_KEY"
+
+
+class StyleConfig(BaseModel):
+    mode: str = "polished"
+    custom_prompt: str = ""
+
+
+class ContextConfig(BaseModel):
+    enabled: bool = True
+    ttl_seconds: int = Field(default=600, ge=1)
+    max_items: int = Field(default=20, ge=1)
+    max_chars: int = Field(default=6000, ge=256)
+    scope: ContextScope = ContextScope.APP
+
+
+class InsertConfig(BaseModel):
+    mode: str = "native"
+    fallback: str = "unicode_events"
+
+
+class AppConfig(BaseModel):
+    hotkey: HotkeyConfig = HotkeyConfig()
+    asr: ASRConfig = ASRConfig()
+    llm: LLMConfig = LLMConfig()
+    style: StyleConfig = StyleConfig()
+    context: ContextConfig = ContextConfig()
+    insert: InsertConfig = InsertConfig()
+
+    @classmethod
+    def load(cls, path: str | Path = "config.toml") -> "AppConfig":
+        load_dotenv()
+        config_path = Path(path)
+        data = {}
+        if config_path.exists():
+            data = tomllib.loads(config_path.read_text(encoding="utf-8"))
+        return cls.model_validate(data)
+
+    def llm_api_key(self) -> str | None:
+        return os.getenv(self.llm.api_key_env)
+
+    def asr_api_key(self) -> str | None:
+        return os.getenv(self.asr.api_key_env)

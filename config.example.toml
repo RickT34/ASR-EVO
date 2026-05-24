@@ -1,0 +1,26 @@
+[hotkey]
+toggle = "cmd+shift+space"
+
+[asr]
+provider = "aliyun"
+model = "qwen3-asr-flash"
+
+[llm]
+provider = "openai_compat"
+base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+model = "qwen-plus"
+
+[style]
+mode = "polished"
+custom_prompt = ""
+
+[context]
+enabled = true
+ttl_seconds = 600
+max_items = 20
+max_chars = 6000
+scope = "app"
+
+[insert]
+mode = "native"
+fallback = "unicode_events"
