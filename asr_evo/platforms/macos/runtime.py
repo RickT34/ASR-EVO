@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import concurrent.futures
+import subprocess
 import sys
 import threading
 from dataclasses import dataclass
@@ -18,7 +19,6 @@ from asr_evo.platforms.macos.inserter import MacOSTextInserter
 from asr_evo.platforms.macos.permissions import MacOSPermissions
 from asr_evo.platforms.macos.recorder import SoundDeviceRecorder
 from asr_evo.platforms.macos.tray import MacOSStatusTray
-from asr_evo.platforms.macos.windows import HistoryWindow, SettingsWindow
 from asr_evo.providers.factory import create_asr_provider, create_llm_provider
 from asr_evo.storage.history import HistoryStore
 
@@ -58,22 +58,28 @@ class MacOSDictationRuntime:
         self.history_store = (
             HistoryStore(config.storage.database_path) if config.storage.enabled else None
         )
-        self.settings_window = None
-        self.history_window = None
         self.tray = MacOSStatusTray(
             hotkey_label=config.hotkey.toggle,
+            status_config=config.status,
             styles=self.styles.all(),
             selected_style_id=self.current_style_id,
             on_toggle=self.toggle_dictation,
             on_select_style=self.select_style,
             on_reload_styles=self.reload_styles,
-            on_open_settings=self.open_settings,
-            on_open_history=self.open_history,
+            on_set_context_ttl=self.set_context_ttl,
+            on_set_context_items=self.set_context_items,
+            on_set_hotkey_preset=self.set_hotkey_preset,
+            on_new_prompt=self.new_prompt_template,
+            on_delete_prompt=self.delete_current_prompt,
+            on_reveal_prompts=self.reveal_prompts_dir,
+            on_reload_config=self.reload_config,
+            on_refresh_stats=self.refresh_menu_summaries,
             on_quit=self.quit,
         )
         self.tray_proxy = _StateTrackingTray(self)
         self.hotkey = self._create_hotkey(config)
         self.permissions = MacOSPermissions()
+        self.refresh_menu_summaries()
 
     def run(self) -> None:
         from AppKit import NSApp, NSApplication, NSApplicationActivationPolicyAccessory
@@ -121,24 +127,74 @@ class MacOSDictationRuntime:
         if not self.styles.has(self.current_style_id):
             self.current_style_id = "polished"
         self.tray.set_styles(self.styles.all(), self.current_style_id)
+        self.update_prompt_preview()
+        self.tray.set_state(self.state.state.value, "已重新加载提示词")
 
-    def open_settings(self) -> None:
-        self.settings_window = SettingsWindow(
-            config=self.config,
-            on_saved=self.apply_config,
+    def set_context_ttl(self, seconds: int) -> None:
+        config = self.config.model_copy(deep=True)
+        config.context.ttl_seconds = seconds
+        self.apply_config(config, persist=True)
+
+    def set_context_items(self, count: int) -> None:
+        config = self.config.model_copy(deep=True)
+        config.context.max_items = count
+        self.apply_config(config, persist=True)
+
+    def set_hotkey_preset(self, hotkey: str, mode: str) -> None:
+        config = self.config.model_copy(deep=True)
+        config.hotkey.toggle = hotkey
+        config.hotkey.mode = mode
+        self.apply_config(config, persist=True)
+
+    def new_prompt_template(self) -> None:
+        prompts_dir = self.styles.prompts_dir
+        prompts_dir.mkdir(parents=True, exist_ok=True)
+        path = prompts_dir / "新提示词.txt"
+        index = 1
+        while path.exists():
+            index += 1
+            path = prompts_dir / f"新提示词 {index}.txt"
+        path.write_text(
+            "请将听写内容整理为自然、清楚的中文。\n"
+            "保留专有名词、技术术语和代码标识符。\n"
+            "只输出最终文本。\n",
+            encoding="utf-8",
         )
-        self.settings_window.show()
+        self.reload_styles()
+        self.tray.set_state(self.state.state.value, f"已创建：{path.name}")
 
-    def open_history(self) -> None:
-        if self.history_store is None:
-            self.tray.set_state(self.state.state.value, "历史存储未启用")
+    def delete_current_prompt(self) -> None:
+        from pathlib import Path
+
+        style = self.styles.get(self.current_style_id)
+        if style.source == "built-in":
+            self.tray.set_state(self.state.state.value, "内置提示词不能删除")
             return
-        self.history_window = HistoryWindow(self.history_store)
-        self.history_window.show()
+        path = Path(style.source)
+        if path.exists():
+            path.unlink()
+        self.current_style_id = "polished"
+        self.reload_styles()
+        self.tray.set_state(self.state.state.value, f"已删除：{style.label}")
 
-    def apply_config(self, config: AppConfig) -> None:
+    def reveal_prompts_dir(self) -> None:
+        self.styles.prompts_dir.mkdir(parents=True, exist_ok=True)
+        subprocess.run(["open", str(self.styles.prompts_dir)], check=False)
+
+    def reload_config(self) -> None:
+        self.apply_config(AppConfig.load(), persist=False)
+        self.tray.set_state(self.state.state.value, "已重新加载配置")
+
+    def update_prompt_preview(self) -> None:
+        style = self.styles.get(self.current_style_id)
+        self.tray.set_prompt_preview(label=style.label, prompt=style.prompt)
+        self.tray.set_delete_prompt_enabled(style.source != "built-in")
+
+    def apply_config(self, config: AppConfig, *, persist: bool = False) -> None:
         old_config = self.config
         self.config = config
+        if persist:
+            config.save()
         self.context_store.ttl = timedelta(seconds=config.context.ttl_seconds)
         self.context_store.max_items = config.context.max_items
         self.context_store.max_chars = config.context.max_chars
@@ -147,6 +203,8 @@ class MacOSDictationRuntime:
         if not self.styles.has(self.current_style_id):
             self.current_style_id = config.style.mode if self.styles.has(config.style.mode) else "polished"
         self.tray.set_styles(self.styles.all(), self.current_style_id)
+        self.update_prompt_preview()
+        self.tray.set_status_config(config.status)
         if (
             old_config.hotkey.toggle != config.hotkey.toggle
             or old_config.hotkey.mode != config.hotkey.mode
@@ -162,6 +220,7 @@ class MacOSDictationRuntime:
             or old_config.storage.database_path != config.storage.database_path
         ):
             self.history_store = HistoryStore(config.storage.database_path)
+        self.refresh_menu_summaries()
 
     def _create_hotkey(self, config: AppConfig) -> MacOSHotkeyService:
         hotkey = MacOSHotkeyService(config.hotkey.toggle, mode=config.hotkey.mode)
@@ -170,6 +229,27 @@ class MacOSDictationRuntime:
         else:
             hotkey.on_toggle(self.toggle_dictation)
         return hotkey
+
+    def refresh_menu_summaries(self) -> None:
+        self.tray.set_settings_summary(
+            hotkey=self.config.hotkey.toggle,
+            hotkey_mode=self.config.hotkey.mode,
+            ttl_seconds=self.config.context.ttl_seconds,
+            max_items=self.config.context.max_items,
+            storage_enabled=self.config.storage.enabled,
+            database_path=self.config.storage.database_path,
+        )
+        if self.history_store is not None:
+            self.tray.set_stats(
+                totals=self.history_store.totals(),
+                app_stats=self.history_store.stats_by_app(),
+            )
+        else:
+            self.tray.set_stats(
+                totals={"count": 0, "total_chars": 0, "total_audio_seconds": 0},
+                app_stats=[],
+            )
+        self.update_prompt_preview()
 
     def quit(self) -> None:
         from AppKit import NSApp
@@ -207,6 +287,7 @@ class MacOSDictationRuntime:
             result = await pipeline.run_once()
             if self.history_store is not None:
                 self.history_store.add(result.record, audio_seconds=result.audio_seconds)
+                self.refresh_menu_summaries()
         except Exception as exc:
             self.tray_proxy.set_state(DictationState.ERROR.value, str(exc))
         finally:

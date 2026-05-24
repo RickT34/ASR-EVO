@@ -67,6 +67,21 @@ class StorageConfig(BaseModel):
     database_path: str = "data/asr_evo.sqlite3"
 
 
+class StatusConfig(BaseModel):
+    idle_icon: str = "ASR"
+    recording_icon: str = "REC ASR"
+    transcribing_icon: str = "... ASR"
+    polishing_icon: str = "TXT ASR"
+    inserting_icon: str = "INS ASR"
+    error_icon: str = "! ASR"
+    idle_text: str = "空闲"
+    recording_text: str = "正在录音，再按快捷键停止"
+    transcribing_text: str = "正在转写"
+    polishing_text: str = "正在润色"
+    inserting_text: str = "正在插入"
+    error_text: str = "错误"
+
+
 class AppConfig(BaseModel):
     hotkey: HotkeyConfig = HotkeyConfig()
     asr: ASRConfig = ASRConfig()
@@ -76,6 +91,7 @@ class AppConfig(BaseModel):
     insert: InsertConfig = InsertConfig()
     audio: AudioConfig = AudioConfig()
     storage: StorageConfig = StorageConfig()
+    status: StatusConfig = StatusConfig()
 
     @classmethod
     def load(cls, path: str | Path = "config.toml") -> "AppConfig":
@@ -109,6 +125,7 @@ class AppConfig(BaseModel):
             "insert": self.insert.model_dump(),
             "audio": self.audio.model_dump(),
             "storage": self.storage.model_dump(),
+            "status": self.status.model_dump(),
         }
         lines = []
         for section, values in sections.items():

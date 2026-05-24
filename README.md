@@ -26,7 +26,7 @@ asr_evo/
 - `scope = "time"`: use recent records across apps.
 - `max_items` and `max_chars`: cap prompt size for speed and cost control.
 
-长期历史会持久化到 SQLite，默认路径是 `data/asr_evo.sqlite3`。托盘菜单中的 `听写历史与统计` 可以查看最近听写、各应用听写次数、累计字数和累计音频秒数。
+长期历史会持久化到 SQLite，默认路径是 `data/asr_evo.sqlite3`。托盘菜单中的 `听写统计` 可以查看听写次数、累计字数、累计音频秒数和按应用统计。
 
 ## 润色风格
 
@@ -45,23 +45,49 @@ custom_prompt = ""
 prompts_dir = "prompts"
 ```
 
-把 `.txt` 或 `.md` 文件放到 `prompts/`。每个非空文件都会成为托盘菜单里的一个风格；例如 `工作聊天.txt` 会显示为 `工作聊天`。
+把 `.txt` 或 `.md` 文件放到 `prompts/`。每个非空文件都会成为托盘菜单里的一个风格；例如 `工作聊天.txt` 会显示为 `工作聊天`。`README.md`、空文件和隐藏文件不会被加载为风格。
+
+托盘菜单中的 `提示词管理` 支持：
+
+- 直接查看当前提示词预览
+- 重新加载提示词
+- 新建提示词模板
+- 删除当前自定义提示词
+- 在 Finder 中打开提示词目录
+
+删除只作用于文件型自定义提示词；内置提示词不会被删除。
 
 如果 `custom_prompt` 非空，它会作为全局强制提示词，覆盖托盘中的风格选择。想使用托盘切换，就保持 `custom_prompt = ""`。
 
-## 设置界面
+## 托盘设置
 
-托盘菜单中的 `设置` 可以配置：
+当前不使用独立设置窗口，常用设置都集成在托盘菜单的 `设置` 子菜单中：
 
-- DashScope API Key
-- 快捷键
-- 上下文 TTL 秒数
-- 历史上下文条数
-- 上下文字符上限
-- 提示词目录
-- 历史数据库路径
+- 查看当前快捷键、上下文 TTL、历史上下文条数、数据库路径
+- 快速切换 TTL：5 分钟、10 分钟、30 分钟
+- 快速切换历史上下文条数：10、20、50
+- 快速切换快捷键预设：`Cmd+Shift+Space` 切换模式，或 `地球仪键` 按住模式
 
-保存后会写入 `config.toml` 和 `.env`。TTL、历史长度、提示词目录会影响后续听写；快捷键、API endpoint/model 这类运行时初始化参数建议重启应用。
+菜单修改会写入 `config.toml` 并立即应用。API Key、模型、endpoint、提示词目录等仍可直接编辑 `config.toml` / `.env`。
+编辑配置文件后，可点击托盘菜单中的 `重新加载配置` 即时应用大部分设置。
+
+状态栏图标和状态文字也可在 `config.toml` 中定制：
+
+```toml
+[status]
+idle_icon = "ASR"
+recording_icon = "REC ASR"
+transcribing_icon = "... ASR"
+polishing_icon = "TXT ASR"
+inserting_icon = "INS ASR"
+error_icon = "! ASR"
+idle_text = "空闲"
+recording_text = "正在录音，再按快捷键停止"
+transcribing_text = "正在转写"
+polishing_text = "正在润色"
+inserting_text = "正在插入"
+error_text = "错误"
+```
 
 快捷键支持两种模式：
 

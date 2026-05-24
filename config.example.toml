@@ -39,3 +39,17 @@ channels = 1
 [storage]
 enabled = true
 database_path = "data/asr_evo.sqlite3"
+
+[status]
+idle_icon = "ASR"
+recording_icon = "REC ASR"
+transcribing_icon = "... ASR"
+polishing_icon = "TXT ASR"
+inserting_icon = "INS ASR"
+error_icon = "! ASR"
+idle_text = "空闲"
+recording_text = "正在录音，再按快捷键停止"
+transcribing_text = "正在转写"
+polishing_text = "正在润色"
+inserting_text = "正在插入"
+error_text = "错误"

@@ -11,12 +11,14 @@ def test_config_save_and_load_roundtrip(tmp_path: Path) -> None:
     config = AppConfig()
     config.context.ttl_seconds = 123
     config.style.prompts_dir = "my-prompts"
+    config.status.idle_icon = "听写"
 
     config.save(path)
     loaded = AppConfig.load(path)
 
     assert loaded.context.ttl_seconds == 123
     assert loaded.style.prompts_dir == "my-prompts"
+    assert loaded.status.idle_icon == "听写"
 
 
 def test_settings_window_build_config_validation() -> None:
