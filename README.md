@@ -26,11 +26,11 @@ asr_evo/
 - `scope = "time"`: use recent records across apps.
 - `max_items` and `max_chars`: cap prompt size for speed and cost control.
 
-长期历史会持久化到 SQLite，默认路径是 `data/asr_evo.sqlite3`。托盘菜单中的 `听写统计` 可以查看听写次数、累计字数、累计音频秒数和按应用统计。
+长期历史会持久化到 SQLite，默认路径是 `data/asr_evo.sqlite3`。托盘菜单中的 `听写统计` 可以查看听写次数、累计字数、累计音频秒数和按应用统计；`历史记录` 可以查看最近记录，并选择复制原始转写或 AI 润色结果到剪贴板。
 
 ## 润色风格
 
-托盘菜单有 `润色风格` 子菜单。内置风格是：
+托盘菜单有 `润色风格与提示词` 子菜单。内置风格是：
 
 - `精确保留`：尽量保留原表达，只修明显识别错误、标点和格式。
 - `书面润色`：整理为自然清楚的书面中文。
@@ -43,19 +43,34 @@ asr_evo/
 mode = "polished"
 custom_prompt = ""
 prompts_dir = "prompts"
+app_styles = {}
 ```
 
 把 `.txt` 或 `.md` 文件放到 `prompts/`。每个非空文件都会成为托盘菜单里的一个风格；例如 `工作聊天.txt` 会显示为 `工作聊天`。`README.md`、空文件和隐藏文件不会被加载为风格。
 
-托盘菜单中的 `提示词管理` 支持：
+`润色风格与提示词` 菜单支持：
 
-- 直接查看当前提示词预览
+- 切换风格，并在当前风格下直接预览提示词内容
 - 重新加载提示词
 - 新建提示词模板
 - 删除当前自定义提示词
+- 将当前风格绑定到当前应用
+- 清除当前应用绑定
 - 在 Finder 中打开提示词目录
 
 删除只作用于文件型自定义提示词；内置提示词不会被删除。
+
+按应用绑定会写入 `app_styles`。例如下面配置会让 TextEdit 自动使用 `书面润色`，让某个自定义会议提示词自动用于 Obsidian：
+
+```toml
+[style]
+mode = "polished"
+custom_prompt = ""
+prompts_dir = "prompts"
+app_styles = { "com.apple.TextEdit" = "polished", "md.obsidian" = "file:会议纪要" }
+```
+
+开始听写时，程序会根据当前前台应用自动切换到对应风格。
 
 如果 `custom_prompt` 非空，它会作为全局强制提示词，覆盖托盘中的风格选择。想使用托盘切换，就保持 `custom_prompt = ""`。
 
@@ -67,9 +82,11 @@ prompts_dir = "prompts"
 - 快速切换 TTL：5 分钟、10 分钟、30 分钟
 - 快速切换历史上下文条数：10、20、50
 - 快速切换快捷键预设：`Cmd+Shift+Space` 切换模式，或 `地球仪键` 按住模式
+- 打开 `config.toml`
+- 重新加载配置
 
 菜单修改会写入 `config.toml` 并立即应用。API Key、模型、endpoint、提示词目录等仍可直接编辑 `config.toml` / `.env`。
-编辑配置文件后，可点击托盘菜单中的 `重新加载配置` 即时应用大部分设置。
+编辑配置文件后，可点击托盘菜单中的 `重新加载配置` 即时应用大部分设置。设置菜单中的灰色项目是当前值说明；带勾项目可以点击切换。
 
 状态栏图标和状态文字也可在 `config.toml` 中定制：
 

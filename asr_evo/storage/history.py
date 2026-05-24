@@ -51,7 +51,7 @@ class HistoryStore:
         with self._connect() as conn:
             rows = conn.execute(
                 """
-                select ended_at, app_name, bundle_id, style, final_text, raw_text, final_chars
+                select id, ended_at, app_name, bundle_id, style, final_text, raw_text, final_chars
                 from dictations
                 order by ended_at desc
                 limit ?
@@ -59,6 +59,18 @@ class HistoryStore:
                 (limit,),
             ).fetchall()
         return [dict(row) for row in rows]
+
+    def get(self, record_id: str) -> dict | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                select id, ended_at, app_name, bundle_id, style, final_text, raw_text, final_chars
+                from dictations
+                where id = ?
+                """,
+                (record_id,),
+            ).fetchone()
+        return dict(row) if row else None
 
     def stats_by_app(self, limit: int = 50) -> list[AppStats]:
         with self._connect() as conn:

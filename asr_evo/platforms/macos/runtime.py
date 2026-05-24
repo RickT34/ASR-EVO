@@ -7,6 +7,7 @@ import sys
 import threading
 from dataclasses import dataclass
 from datetime import timedelta
+from pathlib import Path
 
 from asr_evo.config import AppConfig
 from asr_evo.core.context import ContextStore
@@ -55,6 +56,7 @@ class MacOSDictationRuntime:
         )
         self.asr_provider = create_asr_provider(self.config)
         self.llm_provider = create_llm_provider(self.config)
+        self.app_provider = MacOSFrontmostAppProvider()
         self.history_store = (
             HistoryStore(config.storage.database_path) if config.storage.enabled else None
         )
@@ -73,7 +75,12 @@ class MacOSDictationRuntime:
             on_delete_prompt=self.delete_current_prompt,
             on_reveal_prompts=self.reveal_prompts_dir,
             on_reload_config=self.reload_config,
+            on_open_config=self.open_config_file,
+            on_bind_style_to_app=self.bind_current_style_to_app,
+            on_clear_app_style=self.clear_current_app_style,
             on_refresh_stats=self.refresh_menu_summaries,
+            on_copy_history_raw=self.copy_history_raw,
+            on_copy_history_final=self.copy_history_final,
             on_quit=self.quit,
         )
         self.tray_proxy = _StateTrackingTray(self)
@@ -103,6 +110,7 @@ class MacOSDictationRuntime:
             self.tray.set_state(self.state.state.value, "busy")
             return
 
+        self.apply_app_style_for_current_app()
         self.state.state = DictationState.RECORDING
         self.tray.set_state(DictationState.RECORDING.value)
         future = asyncio.run_coroutine_threadsafe(self._run_pipeline(), self.loop)
@@ -120,6 +128,7 @@ class MacOSDictationRuntime:
                 return
         self.current_style_id = style_id
         self.tray.set_styles(self.styles.all(), self.current_style_id)
+        self.update_prompt_preview()
         self.tray.set_state(self.state.state.value, f"style: {self.styles.get(style_id).label}")
 
     def reload_styles(self) -> None:
@@ -181,9 +190,70 @@ class MacOSDictationRuntime:
         self.styles.prompts_dir.mkdir(parents=True, exist_ok=True)
         subprocess.run(["open", str(self.styles.prompts_dir)], check=False)
 
+    def open_config_file(self) -> None:
+        path = Path("config.toml")
+        if not path.exists():
+            self.config.save(path)
+        subprocess.run(["open", str(path)], check=False)
+        self.tray.set_state(self.state.state.value, "已打开配置文件")
+
     def reload_config(self) -> None:
         self.apply_config(AppConfig.load(), persist=False)
         self.tray.set_state(self.state.state.value, "已重新加载配置")
+
+    def bind_current_style_to_app(self) -> None:
+        app = self.app_provider.current_app()
+        if not app.bundle_id:
+            self.tray.set_state(self.state.state.value, "未识别当前应用")
+            return
+        config = self.config.model_copy(deep=True)
+        config.style.app_styles[app.bundle_id] = self.current_style_id
+        self.apply_config(config, persist=True)
+        style = self.styles.get(self.current_style_id)
+        self.tray.set_state(self.state.state.value, f"{app.app_name or app.bundle_id} -> {style.label}")
+
+    def clear_current_app_style(self) -> None:
+        app = self.app_provider.current_app()
+        if not app.bundle_id:
+            self.tray.set_state(self.state.state.value, "未识别当前应用")
+            return
+        config = self.config.model_copy(deep=True)
+        removed = config.style.app_styles.pop(app.bundle_id, None)
+        self.apply_config(config, persist=True)
+        detail = "已清除当前应用绑定" if removed else "当前应用没有绑定"
+        self.tray.set_state(self.state.state.value, detail)
+
+    def apply_app_style_for_current_app(self) -> None:
+        app = self.app_provider.current_app()
+        if not app.bundle_id:
+            return
+        style_id = self.config.style.app_styles.get(app.bundle_id)
+        if not style_id:
+            return
+        if not self.styles.has(style_id):
+            self.tray.set_state(self.state.state.value, f"应用绑定的风格不存在：{style_id}")
+            return
+        if self.current_style_id != style_id:
+            self.current_style_id = style_id
+            self.tray.set_styles(self.styles.all(), self.current_style_id)
+            self.update_prompt_preview()
+
+    def copy_history_raw(self, record_id: str) -> None:
+        self.copy_history_text(record_id, "raw_text", "已复制原始转写")
+
+    def copy_history_final(self, record_id: str) -> None:
+        self.copy_history_text(record_id, "final_text", "已复制润色结果")
+
+    def copy_history_text(self, record_id: str, field: str, detail: str) -> None:
+        if self.history_store is None:
+            self.tray.set_state(self.state.state.value, "持久化历史未开启")
+            return
+        record = self.history_store.get(record_id)
+        if record is None:
+            self.tray.set_state(self.state.state.value, "历史记录不存在")
+            return
+        self._copy_to_pasteboard(str(record.get(field, "")))
+        self.tray.set_state(self.state.state.value, detail)
 
     def update_prompt_preview(self) -> None:
         style = self.styles.get(self.current_style_id)
@@ -244,11 +314,13 @@ class MacOSDictationRuntime:
                 totals=self.history_store.totals(),
                 app_stats=self.history_store.stats_by_app(),
             )
+            self.tray.set_history_records(self.history_store.recent(limit=10))
         else:
             self.tray.set_stats(
                 totals={"count": 0, "total_chars": 0, "total_audio_seconds": 0},
                 app_stats=[],
             )
+            self.tray.set_history_records([])
         self.update_prompt_preview()
 
     def quit(self) -> None:
@@ -277,7 +349,7 @@ class MacOSDictationRuntime:
                     fallback=self.config.insert.fallback,
                     restore_delay_ms=self.config.insert.restore_delay_ms,
                 ),
-                app_provider=MacOSFrontmostAppProvider(),
+                app_provider=self.app_provider,
                 context_store=self.context_store,
                 tray=self.tray_proxy,
                 style=style.id,
@@ -305,6 +377,13 @@ class MacOSDictationRuntime:
     async def _close_clients(self) -> None:
         await self.asr_provider.aclose()
         await self.llm_provider.aclose()
+
+    def _copy_to_pasteboard(self, text: str) -> None:
+        from AppKit import NSPasteboard, NSPasteboardTypeString
+
+        pasteboard = NSPasteboard.generalPasteboard()
+        pasteboard.clearContents()
+        pasteboard.setString_forType_(text, NSPasteboardTypeString)
 
 
 class _StateTrackingTray:

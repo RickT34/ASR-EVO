@@ -11,6 +11,7 @@ def test_config_save_and_load_roundtrip(tmp_path: Path) -> None:
     config = AppConfig()
     config.context.ttl_seconds = 123
     config.style.prompts_dir = "my-prompts"
+    config.style.app_styles["com.example.Editor"] = "file:会议纪要"
     config.status.idle_icon = "听写"
 
     config.save(path)
@@ -18,6 +19,7 @@ def test_config_save_and_load_roundtrip(tmp_path: Path) -> None:
 
     assert loaded.context.ttl_seconds == 123
     assert loaded.style.prompts_dir == "my-prompts"
+    assert loaded.style.app_styles["com.example.Editor"] == "file:会议纪要"
     assert loaded.status.idle_icon == "听写"
 
 

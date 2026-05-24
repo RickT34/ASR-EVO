@@ -35,7 +35,12 @@ class MacOSStatusTray:
         on_delete_prompt: Callable[[], None],
         on_reveal_prompts: Callable[[], None],
         on_reload_config: Callable[[], None],
+        on_open_config: Callable[[], None],
+        on_bind_style_to_app: Callable[[], None],
+        on_clear_app_style: Callable[[], None],
         on_refresh_stats: Callable[[], None],
+        on_copy_history_raw: Callable[[str], None],
+        on_copy_history_final: Callable[[str], None],
         on_quit: Callable[[], None],
     ) -> None:
         from AppKit import (
@@ -59,8 +64,12 @@ class MacOSStatusTray:
         self.on_set_context_items = on_set_context_items
         self.on_set_hotkey_preset = on_set_hotkey_preset
         self.on_refresh_stats = on_refresh_stats
+        self.on_copy_history_raw = on_copy_history_raw
+        self.on_copy_history_final = on_copy_history_final
         self._style_targets: list[_MenuTargetItem] = []
         self._setting_targets: list[_MenuTargetItem] = []
+        self._history_targets: list[_MenuTargetItem] = []
+        self._style_prompt_items = 0
 
         self.menu = NSMenu.alloc().init()
         self.state_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
@@ -73,11 +82,6 @@ class MacOSStatusTray:
             title="开始听写",
             action=on_toggle,
         )
-        self.style_menu_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
-            "润色风格", None, ""
-        )
-        self.style_menu = NSMenu.alloc().initWithTitle_("润色风格")
-        self.style_menu_item.setSubmenu_(self.style_menu)
         self.reload_styles_item = _MenuTargetItem.create(
             title="重新加载提示词",
             action=on_reload_styles,
@@ -94,9 +98,29 @@ class MacOSStatusTray:
             title="在 Finder 中打开提示词目录",
             action=on_reveal_prompts,
         )
+        self.bind_style_item = _MenuTargetItem.create(
+            title="将当前风格绑定到当前应用",
+            action=on_bind_style_to_app,
+        )
+        self.clear_app_style_item = _MenuTargetItem.create(
+            title="清除当前应用绑定",
+            action=on_clear_app_style,
+        )
         self.reload_config_item = _MenuTargetItem.create(
             title="重新加载配置",
             action=on_reload_config,
+        )
+        self.open_config_item = _MenuTargetItem.create(
+            title="打开配置文件",
+            action=on_open_config,
+        )
+        self.settings_reload_config_item = _MenuTargetItem.create(
+            title="重新加载配置",
+            action=on_reload_config,
+        )
+        self.settings_open_config_item = _MenuTargetItem.create(
+            title="打开配置文件",
+            action=on_open_config,
         )
         self.settings_menu_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
             "设置", None, ""
@@ -108,15 +132,16 @@ class MacOSStatusTray:
         )
         self.stats_menu = NSMenu.alloc().initWithTitle_("听写统计")
         self.stats_menu_item.setSubmenu_(self.stats_menu)
-        self.prompt_menu_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
-            "提示词管理", None, ""
+        self.history_menu_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+            "历史记录", None, ""
         )
-        self.prompt_menu = NSMenu.alloc().initWithTitle_("提示词管理")
+        self.history_menu = NSMenu.alloc().initWithTitle_("历史记录")
+        self.history_menu_item.setSubmenu_(self.history_menu)
+        self.prompt_menu_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+            "润色风格与提示词", None, ""
+        )
+        self.prompt_menu = NSMenu.alloc().initWithTitle_("润色风格与提示词")
         self.prompt_menu_item.setSubmenu_(self.prompt_menu)
-        self.prompt_menu.addItem_(self.reload_styles_item.item)
-        self.prompt_menu.addItem_(self.new_prompt_item.item)
-        self.prompt_menu.addItem_(self.delete_prompt_item.item)
-        self.prompt_menu.addItem_(self.reveal_prompts_item.item)
         self.refresh_stats_item = _MenuTargetItem.create(
             title="刷新统计",
             action=on_refresh_stats,
@@ -131,12 +156,13 @@ class MacOSStatusTray:
         self.menu.addItem_(self.hotkey_item)
         self.menu.addItem_(NSMenuItem.separatorItem())
         self.menu.addItem_(self.toggle_item.item)
-        self.menu.addItem_(self.style_menu_item)
         self.menu.addItem_(self.prompt_menu_item)
         self.menu.addItem_(NSMenuItem.separatorItem())
         self.menu.addItem_(self.settings_menu_item)
         self.menu.addItem_(self.stats_menu_item)
+        self.menu.addItem_(self.history_menu_item)
         self.menu.addItem_(self.reload_config_item.item)
+        self.menu.addItem_(self.open_config_item.item)
         self.menu.addItem_(NSMenuItem.separatorItem())
         self.menu.addItem_(self.quit_item.item)
         self.status_item.setMenu_(self.menu)
@@ -161,13 +187,13 @@ class MacOSStatusTray:
 
             AppHelper.callAfter(self.set_styles, styles, selected_style_id)
             return
-        self.style_menu.removeAllItems()
+        from AppKit import NSMenuItem
+
+        self.prompt_menu.removeAllItems()
         self._style_targets = []
         for group_index, group in enumerate(_group_styles(styles)):
             if group_index > 0:
-                from AppKit import NSMenuItem
-
-                self.style_menu.addItem_(NSMenuItem.separatorItem())
+                self.prompt_menu.addItem_(NSMenuItem.separatorItem())
             for style in group.styles:
                 target_item = _MenuTargetItem.create_with_arg(
                     title=style.label,
@@ -175,8 +201,23 @@ class MacOSStatusTray:
                     arg=style.id,
                 )
                 target_item.item.setState_(1 if style.id == selected_style_id else 0)
-                self.style_menu.addItem_(target_item.item)
+                self.prompt_menu.addItem_(target_item.item)
                 self._style_targets.append(target_item)
+                if style.id == selected_style_id:
+                    for chunk in _chunk_text(" ".join(style.prompt.split()), 38)[:6]:
+                        preview_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+                            f"  {chunk}", None, ""
+                        )
+                        preview_item.setEnabled_(False)
+                        self.prompt_menu.addItem_(preview_item)
+        self.prompt_menu.addItem_(NSMenuItem.separatorItem())
+        self.prompt_menu.addItem_(self.reload_styles_item.item)
+        self.prompt_menu.addItem_(self.new_prompt_item.item)
+        self.prompt_menu.addItem_(self.delete_prompt_item.item)
+        self.prompt_menu.addItem_(NSMenuItem.separatorItem())
+        self.prompt_menu.addItem_(self.bind_style_item.item)
+        self.prompt_menu.addItem_(self.clear_app_style_item.item)
+        self.prompt_menu.addItem_(self.reveal_prompts_item.item)
 
     def set_status_config(self, status_config: StatusConfig) -> None:
         self.status_config = status_config
@@ -209,11 +250,17 @@ class MacOSStatusTray:
 
         self.settings_menu.removeAllItems()
         self._setting_targets = []
+        help_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+            "说明：灰色项目显示当前值；带勾项目点击后立即生效", None, ""
+        )
+        help_item.setEnabled_(False)
+        self.settings_menu.addItem_(help_item)
+        self.settings_menu.addItem_(NSMenuItem.separatorItem())
         readonly = [
             f"快捷键：{hotkey} ({hotkey_mode})",
-            f"上下文 TTL：{ttl_seconds} 秒",
-            f"历史上下文条数：{max_items}",
-            f"持久化历史：{'开启' if storage_enabled else '关闭'}",
+            f"上下文 TTL：{ttl_seconds} 秒（超时后不再传给 AI）",
+            f"历史上下文条数：{max_items}（限制本轮 AI 可参考的记录）",
+            f"持久化历史：{'开启' if storage_enabled else '关闭'}（用于统计和复制历史）",
             f"数据库：{database_path}",
         ]
         for title in readonly:
@@ -254,6 +301,9 @@ class MacOSStatusTray:
             target.item.setState_(1 if (hotkey, hotkey_mode) == preset else 0)
             self.settings_menu.addItem_(target.item)
             self._setting_targets.append(target)
+        self.settings_menu.addItem_(NSMenuItem.separatorItem())
+        self.settings_menu.addItem_(self.settings_open_config_item.item)
+        self.settings_menu.addItem_(self.settings_reload_config_item.item)
 
     def set_stats(self, *, totals: dict[str, int | float], app_stats: list[AppStats]) -> None:
         if current_thread() is not main_thread():
@@ -284,26 +334,60 @@ class MacOSStatusTray:
             item.setEnabled_(False)
             self.stats_menu.addItem_(item)
 
+    def set_history_records(self, records: list[dict]) -> None:
+        if current_thread() is not main_thread():
+            from PyObjCTools import AppHelper
+
+            AppHelper.callAfter(lambda: self.set_history_records(records))
+            return
+        from AppKit import NSMenu, NSMenuItem
+
+        self.history_menu.removeAllItems()
+        self._history_targets = []
+        if not records:
+            item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_("暂无历史记录", None, "")
+            item.setEnabled_(False)
+            self.history_menu.addItem_(item)
+            return
+        intro = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+            "选择记录后可复制原始转写或 AI 润色结果", None, ""
+        )
+        intro.setEnabled_(False)
+        self.history_menu.addItem_(intro)
+        self.history_menu.addItem_(NSMenuItem.separatorItem())
+        for record in records[:10]:
+            title = _history_title(record)
+            item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(title, None, "")
+            submenu = NSMenu.alloc().initWithTitle_(title)
+            raw_preview = _readonly_preview("原始", record.get("raw_text", ""))
+            final_preview = _readonly_preview("润色", record.get("final_text", ""))
+            submenu.addItem_(raw_preview)
+            submenu.addItem_(final_preview)
+            submenu.addItem_(NSMenuItem.separatorItem())
+            raw = _MenuTargetItem.create_with_arg(
+                title="复制原始转写",
+                action=self.on_copy_history_raw,
+                arg=record["id"],
+            )
+            final = _MenuTargetItem.create_with_arg(
+                title="复制润色结果",
+                action=self.on_copy_history_final,
+                arg=record["id"],
+            )
+            submenu.addItem_(raw.item)
+            submenu.addItem_(final.item)
+            item.setSubmenu_(submenu)
+            self.history_menu.addItem_(item)
+            self._history_targets.extend([raw, final])
+
     def set_prompt_preview(self, *, label: str, prompt: str) -> None:
         if current_thread() is not main_thread():
             from PyObjCTools import AppHelper
 
             AppHelper.callAfter(lambda: self.set_prompt_preview(label=label, prompt=prompt))
             return
-        from AppKit import NSMenuItem
-
-        while self.prompt_menu.numberOfItems() > 4:
-            self.prompt_menu.removeItemAtIndex_(4)
-        self.prompt_menu.addItem_(NSMenuItem.separatorItem())
-        title = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(f"当前：{label}", None, "")
-        title.setEnabled_(False)
-        self.prompt_menu.addItem_(title)
-        preview = " ".join(prompt.split())
-        chunks = _chunk_text(preview, 34)[:6]
-        for chunk in chunks:
-            item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(chunk, None, "")
-            item.setEnabled_(False)
-            self.prompt_menu.addItem_(item)
+        # Prompt preview is rendered inline by set_styles() under the selected style.
+        return
 
     def set_delete_prompt_enabled(self, enabled: bool) -> None:
         self.delete_prompt_item.item.setEnabled_(enabled)
@@ -353,6 +437,27 @@ def _chunk_text(text: str, size: int) -> list[str]:
     if not text:
         return ["（空）"]
     return [text[index : index + size] for index in range(0, len(text), size)]
+
+
+def _history_title(record: dict) -> str:
+    text = _ellipsize(" ".join(str(record.get("final_text", "")).split()), 24)
+    app = record.get("app_name") or record.get("bundle_id") or "未知应用"
+    return f"{app}: {text or '（空）'}"
+
+
+def _readonly_preview(label: str, value: str) -> object:
+    from AppKit import NSMenuItem
+
+    text = _ellipsize(" ".join(str(value).split()), 42) or "（空）"
+    item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(f"{label}：{text}", None, "")
+    item.setEnabled_(False)
+    return item
+
+
+def _ellipsize(text: str, limit: int) -> str:
+    if len(text) <= limit:
+        return text
+    return text[:limit] + "..."
 
 
 def _status_icon_map(config: StatusConfig) -> dict[str, str]:

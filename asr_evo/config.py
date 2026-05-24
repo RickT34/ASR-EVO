@@ -41,6 +41,7 @@ class StyleConfig(BaseModel):
     mode: str = "polished"
     custom_prompt: str = ""
     prompts_dir: str = "prompts"
+    app_styles: dict[str, str] = Field(default_factory=dict)
 
 
 class ContextConfig(BaseModel):
@@ -160,6 +161,14 @@ def _toml_value(value) -> str:
         return "true" if value else "false"
     if isinstance(value, int | float):
         return str(value)
+    if isinstance(value, dict):
+        if not value:
+            return "{}"
+        items = []
+        for key, item_value in value.items():
+            escaped_key = str(key).replace("\\", "\\\\").replace('"', '\\"')
+            items.append(f'"{escaped_key}" = {_toml_value(item_value)}')
+        return "{ " + ", ".join(items) + " }"
     if value is None:
         return '""'
     escaped = str(value).replace("\\", "\\\\").replace('"', '\\"')
