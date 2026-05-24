@@ -34,3 +34,7 @@ restore_delay_ms = 300
 [audio]
 sample_rate = 16000
 channels = 1
+
+[storage]
+enabled = true
+database_path = "data/asr_evo.sqlite3"

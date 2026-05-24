@@ -13,6 +13,8 @@ from .state import DictationState
 class DictationResult:
     raw_text: str
     final_text: str
+    record: DictationRecord
+    audio_seconds: float
 
 
 class DictationPipeline:
@@ -71,17 +73,22 @@ class DictationPipeline:
             self.tray.set_state(DictationState.INSERTING.value)
             await self.inserter.insert(final_text)
 
+            record = DictationRecord.create(
+                started_at=started_at,
+                raw_text=transcript.text,
+                final_text=final_text,
+                style=self.style,
+                app_context=app_context,
+            )
             if self.context_enabled:
-                record = DictationRecord.create(
-                    started_at=started_at,
-                    raw_text=transcript.text,
-                    final_text=final_text,
-                    style=self.style,
-                    app_context=app_context,
-                )
                 self.context_store.add(record)
             self.tray.set_state(DictationState.IDLE.value)
-            return DictationResult(raw_text=transcript.text, final_text=final_text)
+            return DictationResult(
+                raw_text=transcript.text,
+                final_text=final_text,
+                record=record,
+                audio_seconds=audio.duration_seconds,
+            )
         finally:
             if self.cleanup_audio and audio is not None:
                 with contextlib.suppress(FileNotFoundError):

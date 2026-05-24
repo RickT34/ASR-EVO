@@ -25,6 +25,8 @@ class MacOSStatusTray:
         on_toggle: Callable[[], None],
         on_select_style: Callable[[str], None],
         on_reload_styles: Callable[[], None],
+        on_open_settings: Callable[[], None],
+        on_open_history: Callable[[], None],
         on_quit: Callable[[], None],
     ) -> None:
         from AppKit import (
@@ -47,26 +49,34 @@ class MacOSStatusTray:
 
         self.menu = NSMenu.alloc().init()
         self.state_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
-            "Idle", None, ""
+            "空闲", None, ""
         )
         self.hotkey_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
-            f"Hotkey: {hotkey_label}", None, ""
+            f"快捷键：{hotkey_label}", None, ""
         )
         self.toggle_item = _MenuTargetItem.create(
-            title="Start Dictation",
+            title="开始听写",
             action=on_toggle,
         )
         self.style_menu_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
-            "Style", None, ""
+            "润色风格", None, ""
         )
-        self.style_menu = NSMenu.alloc().initWithTitle_("Style")
+        self.style_menu = NSMenu.alloc().initWithTitle_("润色风格")
         self.style_menu_item.setSubmenu_(self.style_menu)
         self.reload_styles_item = _MenuTargetItem.create(
-            title="Reload Prompt Styles",
+            title="重新加载提示词",
             action=on_reload_styles,
         )
+        self.settings_item = _MenuTargetItem.create(
+            title="设置",
+            action=on_open_settings,
+        )
+        self.history_item = _MenuTargetItem.create(
+            title="听写历史与统计",
+            action=on_open_history,
+        )
         self.quit_item = _MenuTargetItem.create(
-            title="Quit ASR-EVO",
+            title="退出 ASR-EVO",
             action=on_quit,
         )
 
@@ -76,6 +86,9 @@ class MacOSStatusTray:
         self.menu.addItem_(self.toggle_item.item)
         self.menu.addItem_(self.style_menu_item)
         self.menu.addItem_(self.reload_styles_item.item)
+        self.menu.addItem_(NSMenuItem.separatorItem())
+        self.menu.addItem_(self.settings_item.item)
+        self.menu.addItem_(self.history_item.item)
         self.menu.addItem_(NSMenuItem.separatorItem())
         self.menu.addItem_(self.quit_item.item)
         self.status_item.setMenu_(self.menu)
@@ -96,17 +109,17 @@ class MacOSStatusTray:
             "error": "! ASR",
         }
         text_map = {
-            "idle": "Idle",
-            "recording": "Recording... press hotkey again to stop",
-            "transcribing": "Transcribing...",
-            "polishing": "Polishing...",
-            "inserting": "Inserting...",
-            "error": "Error",
+            "idle": "空闲",
+            "recording": "正在录音，再按快捷键停止",
+            "transcribing": "正在转写",
+            "polishing": "正在润色",
+            "inserting": "正在插入",
+            "error": "错误",
         }
         self.button.setTitle_(title_map.get(state, "ASR"))
-        suffix = f": {detail}" if detail else ""
+        suffix = f"：{detail}" if detail else ""
         self.state_item.setTitle_(f"{text_map.get(state, state)}{suffix}")
-        self.toggle_item.item.setTitle_("Stop Recording" if state == "recording" else "Start Dictation")
+        self.toggle_item.item.setTitle_("停止录音" if state == "recording" else "开始听写")
 
     def set_styles(self, styles: list[StyleDefinition], selected_style_id: str) -> None:
         if current_thread() is not main_thread():

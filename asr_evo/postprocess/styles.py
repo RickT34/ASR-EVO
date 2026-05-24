@@ -73,8 +73,8 @@ class StyleRegistry:
 
 def _title_from_id(style_id: str) -> str:
     labels = {
-        "exact": "Exact",
-        "polished": "Polished",
-        "concise": "Concise",
+        "exact": "精确保留",
+        "polished": "书面润色",
+        "concise": "简洁整理",
     }
     return labels.get(style_id, style_id.replace("_", " ").replace("-", " ").title())

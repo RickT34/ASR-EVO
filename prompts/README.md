@@ -1,13 +1,14 @@
-# Custom Prompt Styles
+# 自定义润色提示词
 
-Put `.txt` or `.md` files in this directory. ASR-EVO loads each non-empty file as a menu style.
+把 `.txt` 或 `.md` 文件放在这个目录。ASR-EVO 会把每个非空文件加载为托盘菜单中的一个润色风格。
 
-Example:
+示例：
 
 ```text
-Please rewrite the dictation as concise, polite Chinese suitable for a work chat.
-Keep technical terms and code identifiers unchanged.
-Only output the final text.
+请将听写内容整理成适合工作聊天的中文。
+语气礼貌、简洁、自然。
+保留技术术语、代码标识符和专有名词。
+只输出最终文本。
 ```
 
-The filename becomes the menu label. For example, `work-chat.txt` appears as `Work Chat`.
+文件名会成为菜单标签。例如 `工作聊天.txt` 会显示为 `工作聊天`。
