@@ -101,7 +101,11 @@ class MacOSDictationRuntime:
                 recorder=self.recorder,
                 asr=self.asr_provider,
                 llm=self.llm_provider,
-                inserter=MacOSTextInserter(fallback=self.config.insert.fallback),
+                inserter=MacOSTextInserter(
+                    mode=self.config.insert.mode,
+                    fallback=self.config.insert.fallback,
+                    restore_delay_ms=self.config.insert.restore_delay_ms,
+                ),
                 app_provider=MacOSFrontmostAppProvider(),
                 context_store=self.context_store,
                 tray=self.tray_proxy,

@@ -26,8 +26,9 @@ max_chars = 6000
 scope = "app"
 
 [insert]
-mode = "native"
+mode = "pasteboard_restore"
 fallback = "unicode_events"
+restore_delay_ms = 300
 
 [audio]
 sample_rate = 16000

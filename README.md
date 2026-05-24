@@ -30,11 +30,14 @@ This keeps frequent dictation fast and avoids sending unrelated history to the L
 
 ## macOS Insertion Strategy
 
-The default insertion path is native and avoids overwriting the clipboard:
+The default insertion path uses temporary pasteboard insertion with restoration:
 
-1. Try Accessibility focused-element insertion.
-2. Fall back to CGEvent Unicode typing.
-3. Clipboard restore can be added later as an explicit compatibility mode, not the default.
+1. Snapshot the current pasteboard items and data types.
+2. Put the final text on the pasteboard.
+3. Send `Cmd+V`, letting the target app handle placeholder text, selection, cursor position, rich text, and input method state.
+4. Restore the original pasteboard only if the user did not change it during the short insertion window.
+
+Direct Accessibility value mutation remains available as `mode = "accessibility"`, but it is not the default because many apps expose placeholder text through Accessibility or reset selection after `AXValue` changes.
 
 macOS will require Microphone and Accessibility permissions.
 
@@ -112,8 +115,9 @@ You can test only the macOS insertion layer by focusing a text field and running
 .venv/bin/asr-evo-insert-test "hello from ASR-EVO"
 ```
 
-If native insertion fails in a specific app, try the explicit clipboard-restore fallback:
+You can explicitly try other insertion modes:
 
 ```bash
-.venv/bin/asr-evo-insert-test "hello from ASR-EVO" --fallback clipboard_restore
+.venv/bin/asr-evo-insert-test "hello from ASR-EVO" --mode accessibility
+.venv/bin/asr-evo-insert-test "hello from ASR-EVO" --mode unicode_events
 ```

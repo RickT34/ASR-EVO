@@ -50,8 +50,9 @@ class ContextConfig(BaseModel):
 
 
 class InsertConfig(BaseModel):
-    mode: str = "native"
+    mode: str = "pasteboard_restore"
     fallback: str = "unicode_events"
+    restore_delay_ms: int = Field(default=300, ge=50)
 
 
 class AudioConfig(BaseModel):
