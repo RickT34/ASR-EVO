@@ -14,12 +14,12 @@ def test_style_registry_loads_prompt_files(tmp_path: Path) -> None:
 
     registry = StyleRegistry(prompts_dir=prompts)
 
-    style = registry.get("file:work-chat")
+    style = registry.get("work-chat")
     assert style.label == "work-chat.txt"
     assert style.prompt == "Make it polite."
     style_ids = [item.id for item in registry.all()]
-    assert "file:empty" not in style_ids
-    assert "file:README" not in style_ids
+    assert "empty" not in style_ids
+    assert "README" not in style_ids
 
 
 def test_style_registry_writes_default_prompt_files(tmp_path: Path) -> None:

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from asr_evo.config import AppConfig, save_env_value
+from asr_evo.config import API_KEY_ENV, AppConfig, save_env_value
 from asr_evo.storage.history import HistoryStore, format_datetime
 
 
@@ -65,9 +65,7 @@ class SettingsWindow:
             ("快捷键模式(toggle/hold)", "hotkey_mode", config.hotkey.mode),
             ("上下文 TTL 秒数", "ttl", str(config.context.ttl_seconds)),
             ("历史上下文条数", "max_items", str(config.context.max_items)),
-            ("上下文字符上限", "max_chars", str(config.context.max_chars)),
             ("提示词目录", "prompts_dir", config.style.prompts_dir),
-            ("历史数据库", "database_path", config.storage.database_path),
         ]
         title = NSTextField.labelWithString_("常用设置")
         title.setFrame_(NSMakeRect(24, 372, 200, 26))
@@ -103,7 +101,7 @@ class SettingsWindow:
             data = self._build_config()
             api_key = self.fields["api_key"].stringValue().strip()
             if api_key:
-                save_env_value(data.llm.api_key_env, api_key)
+                save_env_value(API_KEY_ENV, api_key)
             data.save(self.config_path)
             self.config = data
             if self.on_saved:
@@ -118,9 +116,7 @@ class SettingsWindow:
         current["hotkey"]["mode"] = self.fields["hotkey_mode"].stringValue()
         current["context"]["ttl_seconds"] = int(self.fields["ttl"].stringValue())
         current["context"]["max_items"] = int(self.fields["max_items"].stringValue())
-        current["context"]["max_chars"] = int(self.fields["max_chars"].stringValue())
         current["style"]["prompts_dir"] = self.fields["prompts_dir"].stringValue()
-        current["storage"]["database_path"] = self.fields["database_path"].stringValue()
         return AppConfig.model_validate(current)
 
 

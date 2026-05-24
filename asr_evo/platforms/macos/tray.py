@@ -31,6 +31,7 @@ class MacOSStatusTray:
         on_open_config: Callable[[], None],
         on_bind_style_to_app: Callable[[], None],
         on_clear_app_style: Callable[[], None],
+        on_refresh_app_binding: Callable[[], None],
         on_refresh_stats: Callable[[], None],
         on_copy_history_raw: Callable[[str], None],
         on_copy_history_final: Callable[[str], None],
@@ -52,6 +53,7 @@ class MacOSStatusTray:
         self.button.setTitle_("ASR")
         self.status_config = status_config
         self.on_select_style = on_select_style
+        self.on_refresh_app_binding = on_refresh_app_binding
         self.on_refresh_stats = on_refresh_stats
         self.on_copy_history_raw = on_copy_history_raw
         self.on_copy_history_final = on_copy_history_final
@@ -104,6 +106,7 @@ class MacOSStatusTray:
             "润色风格与提示词", None, ""
         )
         self.prompt_menu = NSMenu.alloc().initWithTitle_("润色风格与提示词")
+        self.prompt_menu.setDelegate_(self)
         self.prompt_menu_item.setSubmenu_(self.prompt_menu)
         self.refresh_stats_item = _MenuTargetItem.create(
             title="刷新统计",
@@ -141,6 +144,10 @@ class MacOSStatusTray:
         if detail:
             status_text = f"{status_text}：{detail}"
         self.button.setToolTip_(status_text)
+
+    def menuWillOpen_(self, menu) -> None:
+        if menu == self.prompt_menu:
+            self.on_refresh_app_binding()
 
     def set_styles(self, styles: list[StyleDefinition], selected_style_id: str) -> None:
         if current_thread() is not main_thread():
@@ -199,7 +206,6 @@ class MacOSStatusTray:
         ttl_seconds: int,
         max_items: int,
         storage_enabled: bool,
-        database_path: str,
     ) -> None:
         if current_thread() is not main_thread():
             from PyObjCTools import AppHelper
@@ -211,36 +217,22 @@ class MacOSStatusTray:
                     ttl_seconds=ttl_seconds,
                     max_items=max_items,
                     storage_enabled=storage_enabled,
-                    database_path=database_path,
                 )
             )
             return
         from AppKit import NSMenuItem
 
         self.settings_menu.removeAllItems()
-        help_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
-            "配置修改请编辑 config.toml，然后点击主菜单“重新加载配置”", None, ""
-        )
-        help_item.setEnabled_(False)
-        self.settings_menu.addItem_(help_item)
-        self.settings_menu.addItem_(NSMenuItem.separatorItem())
         readonly = [
             f"快捷键：{hotkey} ({hotkey_mode})",
-            f"上下文 TTL：{ttl_seconds} 秒（超时后不再传给 AI）",
-            f"历史上下文条数：{max_items}（限制本轮 AI 可参考的记录）",
-            f"持久化历史：{'开启' if storage_enabled else '关闭'}（用于统计和复制历史）",
-            f"数据库：{database_path}",
+            f"上下文 TTL：{ttl_seconds} 秒",
+            f"历史上下文条数：{max_items}",
+            f"持久化历史：{'开启' if storage_enabled else '关闭'}",
         ]
         for title in readonly:
             item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(title, None, "")
             item.setEnabled_(False)
             self.settings_menu.addItem_(item)
-        self.settings_menu.addItem_(NSMenuItem.separatorItem())
-        note = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
-            "托盘不直接修改这些设置，避免运行中配置状态不一致", None, ""
-        )
-        note.setEnabled_(False)
-        self.settings_menu.addItem_(note)
 
     def set_stats(self, *, totals: dict[str, int | float], app_stats: list[AppStats]) -> None:
         if current_thread() is not main_thread():
@@ -251,6 +243,8 @@ class MacOSStatusTray:
         from AppKit import NSMenuItem
 
         self.stats_menu.removeAllItems()
+        self.stats_menu.addItem_(self.refresh_stats_item.item)
+        self.stats_menu.addItem_(NSMenuItem.separatorItem())
         rows = [
             f"听写次数：{totals.get('count', 0)}",
             f"累计字数：{totals.get('total_chars', 0)}",
@@ -286,12 +280,6 @@ class MacOSStatusTray:
             item.setEnabled_(False)
             self.history_menu.addItem_(item)
             return
-        intro = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
-            "选择记录后可复制原始转写或 AI 润色结果", None, ""
-        )
-        intro.setEnabled_(False)
-        self.history_menu.addItem_(intro)
-        self.history_menu.addItem_(NSMenuItem.separatorItem())
         for record in records[:10]:
             title = _history_title(record)
             item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(title, None, "")

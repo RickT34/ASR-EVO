@@ -18,13 +18,10 @@ asr_evo/
 
 ## 上下文与历史
 
-短期上下文保存在内存里，用于下一次 LLM 润色。记录会按时间和作用域过滤：
+短期上下文保存在内存里，用于下一次 LLM 润色。默认只使用同一前台应用内的近期记录：
 
-- `ttl_seconds`: records older than this are ignored, default `600`.
-- `scope = "app"`: only records from the same frontmost app are used.
-- `scope = "window"`: future stricter mode for same app and same window title.
-- `scope = "time"`: use recent records across apps.
-- `max_items` and `max_chars`: cap prompt size for speed and cost control.
+- `ttl_seconds`: 超过这个时间的记录会被忽略，默认 `600`。
+- `max_items`: 最多保留多少条上下文记录，默认 `20`。
 
 长期历史会持久化到 SQLite，默认路径是 `data/asr_evo.sqlite3`。托盘菜单中的 `听写统计` 可以查看听写次数、累计字数、累计音频秒数和按应用统计；`历史记录` 可以查看最近记录，并选择复制原始转写或 AI 润色结果到剪贴板。
 
@@ -32,21 +29,24 @@ asr_evo/
 
 托盘菜单有 `润色风格与提示词` 子菜单。默认风格也是普通提示词文件，位于 `prompts/`：
 
-- `exact.txt`：尽量保留原表达，只修明显识别错误、标点和格式。
-- `polished.txt`：整理为自然清楚的书面中文。
-- `concise.txt`：删去口语冗余，保留关键信息。
+- `exact.txt`：忠实轻修，尽量保留原话，只修正明显听写问题。
+- `polished.txt`：通用润色，整理成自然清楚、可直接使用的中文。
+- `concise.txt`：简洁压缩，删去冗余口语，保留关键信息。
+- `工作聊天.txt`：适合 Slack、飞书、企业微信、微信等短消息。
+- `邮件.txt`：整理成可直接发送的邮件正文。
+- `会议纪要.txt`：整理讨论结论、决定、行动项和待确认事项。
+- `技术记录.txt`：保留代码、命令、路径、指标和技术术语。
 
 所有风格都从提示词目录加载：
 
 ```toml
 [style]
 mode = "polished"
-custom_prompt = ""
 prompts_dir = "prompts"
 app_styles = {}
 ```
 
-把 `.txt` 或 `.md` 文件放到 `prompts/`。每个非空文件都会成为托盘菜单里的一个风格；例如 `工作聊天.txt` 会显示为 `工作聊天`，风格 id 是 `file:工作聊天`。默认文件 `exact.txt`、`polished.txt`、`concise.txt` 的风格 id 分别是 `exact`、`polished`、`concise`。`README.md`、空文件和隐藏文件不会被加载为风格。
+把 `.txt` 或 `.md` 文件放到 `prompts/`。每个非空文件都会成为托盘菜单里的一个风格；例如 `工作聊天.txt` 会显示为 `工作聊天.txt`，风格 id 是 `工作聊天`。默认文件 `exact.txt`、`polished.txt`、`concise.txt` 的风格 id 分别是 `exact`、`polished`、`concise`。`README.md`、空文件和隐藏文件不会被加载为风格。
 
 `润色风格与提示词` 菜单支持：
 
@@ -63,20 +63,17 @@ app_styles = {}
 ```toml
 [style]
 mode = "polished"
-custom_prompt = ""
 prompts_dir = "prompts"
-app_styles = { "com.apple.TextEdit" = "polished", "md.obsidian" = "file:会议纪要" }
+app_styles = { "com.apple.TextEdit" = "polished", "md.obsidian" = "会议纪要" }
 ```
 
 开始听写时，程序会根据当前前台应用自动切换到对应风格。
-
-如果 `custom_prompt` 非空，它会作为全局强制提示词，覆盖托盘中的风格选择。想使用托盘切换，就保持 `custom_prompt = ""`。
 
 ## 托盘设置
 
 当前不使用独立设置窗口。托盘菜单的 `配置摘要` 子菜单只显示当前配置，不直接修改配置：
 
-- 查看当前快捷键、上下文 TTL、历史上下文条数、数据库路径
+- 查看当前快捷键、上下文 TTL、历史上下文条数、持久化历史状态
 
 具体设置请点击主菜单的 `打开配置文件`，编辑带注释的 `config.toml`。保存后点击主菜单的 `重新加载配置` 才会生效。API Key 仍建议写在 `.env`。
 
@@ -148,7 +145,6 @@ The default LLM endpoint is Aliyun Bailian/DashScope OpenAI-compatible mode:
 
 ```toml
 [llm]
-provider = "openai_compat"
 base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 model = "qwen-plus"
 ```

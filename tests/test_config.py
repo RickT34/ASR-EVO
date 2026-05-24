@@ -11,7 +11,7 @@ def test_config_save_and_load_roundtrip(tmp_path: Path) -> None:
     config = AppConfig()
     config.context.ttl_seconds = 123
     config.style.prompts_dir = "my-prompts"
-    config.style.app_styles["com.example.Editor"] = "file:会议纪要"
+    config.style.app_styles["com.example.Editor"] = "会议纪要"
     config.status.idle_icon = "听写"
 
     config.save(path)
@@ -19,7 +19,7 @@ def test_config_save_and_load_roundtrip(tmp_path: Path) -> None:
 
     assert loaded.context.ttl_seconds == 123
     assert loaded.style.prompts_dir == "my-prompts"
-    assert loaded.style.app_styles["com.example.Editor"] == "file:会议纪要"
+    assert loaded.style.app_styles["com.example.Editor"] == "会议纪要"
     assert loaded.status.idle_icon == "听写"
 
 
@@ -32,9 +32,7 @@ def test_settings_window_build_config_validation() -> None:
         "hotkey_mode": _Field("hold"),
         "ttl": _Field("600"),
         "max_items": _Field("20"),
-        "max_chars": _Field("6000"),
         "prompts_dir": _Field("prompts"),
-        "database_path": _Field("data/asr_evo.sqlite3"),
     }
 
     config = window._build_config()

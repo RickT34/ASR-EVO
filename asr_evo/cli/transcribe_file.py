@@ -8,6 +8,7 @@ import soundfile as sf
 
 from asr_evo.config import AppConfig
 from asr_evo.core.ports import AudioClip
+from asr_evo.postprocess.styles import StyleRegistry
 from asr_evo.providers.factory import create_asr_provider, create_llm_provider
 
 
@@ -28,13 +29,15 @@ async def _run(audio_path: Path, config: AppConfig) -> None:
     )
     asr = create_asr_provider(config)
     llm = create_llm_provider(config)
+    styles = StyleRegistry(prompts_dir=config.style.prompts_dir)
+    style_id = config.style.mode if styles.has(config.style.mode) else styles.default_style_id()
+    style = styles.get(style_id)
     try:
         transcript = await asr.transcribe(clip)
         final_text = await llm.polish(
             transcript.text,
             context="",
-            style=config.style.mode,
-            custom_prompt=config.style.custom_prompt,
+            prompt_instruction=style.prompt,
         )
     finally:
         await asr.aclose()

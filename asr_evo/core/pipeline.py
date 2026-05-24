@@ -29,7 +29,7 @@ class DictationPipeline:
         context_store: ContextStore,
         tray: TrayUI,
         style: str,
-        custom_prompt: str = "",
+        prompt_instruction: str,
         context_enabled: bool = True,
         cleanup_audio: bool = True,
     ) -> None:
@@ -41,7 +41,7 @@ class DictationPipeline:
         self.context_store = context_store
         self.tray = tray
         self.style = style
-        self.custom_prompt = custom_prompt
+        self.prompt_instruction = prompt_instruction
         self.context_enabled = context_enabled
         self.cleanup_audio = cleanup_audio
 
@@ -66,8 +66,7 @@ class DictationPipeline:
             final_text = await self.llm.polish(
                 transcript.text,
                 context,
-                self.style,
-                custom_prompt=self.custom_prompt,
+                self.prompt_instruction,
             )
 
             self.tray.set_state(DictationState.INSERTING.value)

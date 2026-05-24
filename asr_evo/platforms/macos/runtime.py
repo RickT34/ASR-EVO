@@ -9,7 +9,18 @@ from dataclasses import dataclass
 from datetime import timedelta
 from pathlib import Path
 
-from asr_evo.config import AppConfig
+from asr_evo.config import (
+    AUDIO_CHANNELS,
+    AUDIO_SAMPLE_RATE,
+    CONTEXT_MAX_CHARS,
+    CONTEXT_SCOPE,
+    INSERT_FALLBACK,
+    INSERT_MODE,
+    INSERT_RESTORE_DELAY_MS,
+    STORAGE_DATABASE_PATH,
+    STORAGE_ENABLED,
+    AppConfig,
+)
 from asr_evo.core.context import ContextStore
 from asr_evo.core.pipeline import DictationPipeline
 from asr_evo.core.state import DictationState
@@ -41,24 +52,24 @@ class MacOSDictationRuntime:
         self.loop_thread = threading.Thread(target=self._run_loop, name="asr-evo-async", daemon=True)
         self.styles = StyleRegistry(prompts_dir=config.style.prompts_dir)
         self.current_style_id = (
-            config.style.mode if self.styles.has(config.style.mode) else "polished"
+            config.style.mode if self.styles.has(config.style.mode) else self.styles.default_style_id()
         )
 
         self.recorder = SoundDeviceRecorder(
-            sample_rate=config.audio.sample_rate,
-            channels=config.audio.channels,
+            sample_rate=AUDIO_SAMPLE_RATE,
+            channels=AUDIO_CHANNELS,
         )
         self.context_store = ContextStore(
             ttl_seconds=config.context.ttl_seconds,
             max_items=config.context.max_items,
-            max_chars=config.context.max_chars,
-            scope=config.context.scope.value,
+            max_chars=CONTEXT_MAX_CHARS,
+            scope=CONTEXT_SCOPE,
         )
         self.asr_provider = create_asr_provider(self.config)
         self.llm_provider = create_llm_provider(self.config)
         self.app_provider = MacOSFrontmostAppProvider()
         self.history_store = (
-            HistoryStore(config.storage.database_path) if config.storage.enabled else None
+            HistoryStore(STORAGE_DATABASE_PATH) if STORAGE_ENABLED else None
         )
         self.tray = MacOSStatusTray(
             hotkey_label=config.hotkey.toggle,
@@ -71,6 +82,7 @@ class MacOSDictationRuntime:
             on_open_config=self.open_config_file,
             on_bind_style_to_app=self.bind_current_style_to_app,
             on_clear_app_style=self.clear_current_app_style,
+            on_refresh_app_binding=self.update_app_binding_summary,
             on_refresh_stats=self.refresh_menu_summaries,
             on_copy_history_raw=self.copy_history_raw,
             on_copy_history_final=self.copy_history_final,
@@ -133,51 +145,6 @@ class MacOSDictationRuntime:
         self.update_prompt_preview()
         self.update_app_binding_summary()
         self.tray.set_state(self.state.state.value, "已重新加载提示词")
-
-    def set_context_ttl(self, seconds: int) -> None:
-        config = self.config.model_copy(deep=True)
-        config.context.ttl_seconds = seconds
-        self.apply_config(config, persist=True)
-
-    def set_context_items(self, count: int) -> None:
-        config = self.config.model_copy(deep=True)
-        config.context.max_items = count
-        self.apply_config(config, persist=True)
-
-    def set_hotkey_preset(self, hotkey: str, mode: str) -> None:
-        config = self.config.model_copy(deep=True)
-        config.hotkey.toggle = hotkey
-        config.hotkey.mode = mode
-        self.apply_config(config, persist=True)
-
-    def new_prompt_template(self) -> None:
-        prompts_dir = self.styles.prompts_dir
-        prompts_dir.mkdir(parents=True, exist_ok=True)
-        path = prompts_dir / "新提示词.txt"
-        index = 1
-        while path.exists():
-            index += 1
-            path = prompts_dir / f"新提示词 {index}.txt"
-        path.write_text(
-            "请将听写内容整理为自然、清楚的中文。\n"
-            "保留专有名词、技术术语和代码标识符。\n"
-            "只输出最终文本。\n",
-            encoding="utf-8",
-        )
-        self.reload_styles()
-        self.tray.set_state(self.state.state.value, f"已创建：{path.name}")
-
-    def delete_current_prompt(self) -> None:
-        from pathlib import Path
-
-        style = self.styles.get(self.current_style_id)
-        path = Path(style.source)
-        if path.exists():
-            path.unlink()
-        self.reload_styles()
-        self.current_style_id = self.styles.default_style_id()
-        self.tray.set_styles(self.styles.all(), self.current_style_id)
-        self.tray.set_state(self.state.state.value, f"已删除：{style.label}")
 
     def reveal_prompts_dir(self) -> None:
         self.styles.prompts_dir.mkdir(parents=True, exist_ok=True)
@@ -278,8 +245,8 @@ class MacOSDictationRuntime:
             config.save()
         self.context_store.ttl = timedelta(seconds=config.context.ttl_seconds)
         self.context_store.max_items = config.context.max_items
-        self.context_store.max_chars = config.context.max_chars
-        self.context_store.scope = config.context.scope.value
+        self.context_store.max_chars = CONTEXT_MAX_CHARS
+        self.context_store.scope = CONTEXT_SCOPE
         self.styles = StyleRegistry(prompts_dir=config.style.prompts_dir)
         if not self.styles.has(self.current_style_id):
             self.current_style_id = (
@@ -297,13 +264,10 @@ class MacOSDictationRuntime:
             self.hotkey = self._create_hotkey(config)
             self.hotkey.start()
             self.tray.hotkey_item.setTitle_(f"快捷键：{config.hotkey.toggle} ({config.hotkey.mode})")
-        if not config.storage.enabled:
+        if not STORAGE_ENABLED:
             self.history_store = None
-        elif (
-            self.history_store is None
-            or old_config.storage.database_path != config.storage.database_path
-        ):
-            self.history_store = HistoryStore(config.storage.database_path)
+        elif self.history_store is None:
+            self.history_store = HistoryStore(STORAGE_DATABASE_PATH)
         self.refresh_menu_summaries()
 
     def _create_hotkey(self, config: AppConfig) -> MacOSHotkeyService:
@@ -320,8 +284,7 @@ class MacOSDictationRuntime:
             hotkey_mode=self.config.hotkey.mode,
             ttl_seconds=self.config.context.ttl_seconds,
             max_items=self.config.context.max_items,
-            storage_enabled=self.config.storage.enabled,
-            database_path=self.config.storage.database_path,
+            storage_enabled=STORAGE_ENABLED,
         )
         if self.history_store is not None:
             self.tray.set_stats(
@@ -360,15 +323,15 @@ class MacOSDictationRuntime:
                 asr=self.asr_provider,
                 llm=self.llm_provider,
                 inserter=MacOSTextInserter(
-                    mode=self.config.insert.mode,
-                    fallback=self.config.insert.fallback,
-                    restore_delay_ms=self.config.insert.restore_delay_ms,
+                    mode=INSERT_MODE,
+                    fallback=INSERT_FALLBACK,
+                    restore_delay_ms=INSERT_RESTORE_DELAY_MS,
                 ),
                 app_provider=self.app_provider,
                 context_store=self.context_store,
                 tray=self.tray_proxy,
                 style=style.id,
-                custom_prompt=self.config.style.custom_prompt or style.prompt,
+                prompt_instruction=style.prompt,
                 context_enabled=self.config.context.enabled,
             )
             result = await pipeline.run_once()

@@ -22,12 +22,11 @@ class OpenAICompatibleLLMProvider:
             headers={"Authorization": f"Bearer {api_key}"},
         )
 
-    async def polish(self, raw_text: str, context: str, style: str, custom_prompt: str = "") -> str:
+    async def polish(self, raw_text: str, context: str, prompt_instruction: str) -> str:
         messages = build_polish_messages(
             raw_text=raw_text,
             context=context,
-            style=style,
-            custom_prompt=custom_prompt,
+            prompt_instruction=prompt_instruction,
         )
         payload = {
             "model": self.model,

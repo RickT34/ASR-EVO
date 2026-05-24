@@ -7,7 +7,7 @@ def test_prompt_outputs_only_final_text_instruction() -> None:
     messages = build_polish_messages(
         raw_text="今天我们继续写这个项目",
         context="最近同一上下文中已经插入的文本：\n1. 这是前文。",
-        style="polished",
+        prompt_instruction="整理为自然清楚的中文。只输出最终文本。",
     )
 
     assert messages[0]["role"] == "system"

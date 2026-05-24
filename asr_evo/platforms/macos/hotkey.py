@@ -130,12 +130,7 @@ class HotkeySpec:
     def matches(self, *, keycode: int, flags: int, Quartz) -> bool:
         if keycode != self.keycode:
             return False
-        masks = {
-            "cmd": Quartz.kCGEventFlagMaskCommand,
-            "shift": Quartz.kCGEventFlagMaskShift,
-            "ctrl": Quartz.kCGEventFlagMaskControl,
-            "alt": Quartz.kCGEventFlagMaskAlternate,
-        }
+        masks = _modifier_masks(Quartz)
         for name, mask in masks.items():
             expected = name in self.modifiers
             actual = bool(flags & mask)
