@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import mimetypes
 from pathlib import Path
 
 import httpx
@@ -20,16 +22,21 @@ class AliyunASRProvider:
         *,
         api_key: str,
         model: str = "qwen3-asr-flash",
-        endpoint: str = "https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation",
+        base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        language: str | None = "zh",
+        enable_itn: bool = True,
+        max_audio_mb: int = 10,
         timeout_seconds: float = 60,
     ) -> None:
         self.model = model
-        self.endpoint = endpoint
+        self.language = language
+        self.enable_itn = enable_itn
+        self.max_audio_bytes = max_audio_mb * 1024 * 1024
         self.client = httpx.AsyncClient(
+            base_url=base_url.rstrip("/"),
             timeout=timeout_seconds,
             headers={
                 "Authorization": f"Bearer {api_key}",
-                "X-DashScope-DataInspection": "enable",
             },
         )
 
@@ -37,14 +44,51 @@ class AliyunASRProvider:
         audio_path = Path(audio.path)
         if not audio_path.exists():
             raise FileNotFoundError(audio_path)
+        size = audio_path.stat().st_size
+        if size > self.max_audio_bytes:
+            raise ValueError(f"Audio file is {size} bytes, exceeding configured ASR limit")
 
-        # Placeholder shape for the native DashScope adapter. The provider is intentionally
-        # isolated because Qwen-ASR local-file upload details are likely to be the first thing
-        # we tune against real credentials.
-        raise NotImplementedError(
-            "Aliyun Qwen-ASR transport is isolated here and should be completed with real "
-            "DashScope credentials/API shape before enabling live transcription."
+        response = await self.client.post(
+            "/chat/completions",
+            json={
+                "model": self.model,
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "input_audio",
+                                "input_audio": {
+                                    "data": self._audio_data_url(audio_path),
+                                },
+                            }
+                        ],
+                    }
+                ],
+                "asr_options": self._asr_options(),
+                "stream": False,
+            },
         )
+        response.raise_for_status()
+        data = response.json()
+        message = data["choices"][0]["message"]
+        language = None
+        for annotation in message.get("annotations", []):
+            if annotation.get("type") == "audio_info":
+                language = annotation.get("language")
+                break
+        return Transcript(text=message["content"].strip(), language=language)
+
+    def _asr_options(self) -> dict[str, object]:
+        options: dict[str, object] = {"enable_itn": self.enable_itn}
+        if self.language:
+            options["language"] = self.language
+        return options
+
+    def _audio_data_url(self, path: Path) -> str:
+        mime_type = mimetypes.guess_type(path.name)[0] or "audio/wav"
+        encoded = base64.b64encode(path.read_bytes()).decode("ascii")
+        return f"data:{mime_type};base64,{encoded}"
 
     async def aclose(self) -> None:
         await self.client.aclose()

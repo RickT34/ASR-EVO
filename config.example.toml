@@ -4,6 +4,10 @@ toggle = "cmd+shift+space"
 [asr]
 provider = "aliyun"
 model = "qwen3-asr-flash"
+base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+language = "zh"
+enable_itn = true
+max_audio_mb = 10
 
 [llm]
 provider = "openai_compat"
@@ -24,3 +28,7 @@ scope = "app"
 [insert]
 mode = "native"
 fallback = "unicode_events"
+
+[audio]
+sample_rate = 16000
+channels = 1

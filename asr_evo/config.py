@@ -22,7 +22,11 @@ class HotkeyConfig(BaseModel):
 class ASRConfig(BaseModel):
     provider: str = "aliyun"
     model: str = "qwen3-asr-flash"
+    base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
     api_key_env: str = "DASHSCOPE_API_KEY"
+    language: str | None = "zh"
+    enable_itn: bool = True
+    max_audio_mb: int = Field(default=10, ge=1)
 
 
 class LLMConfig(BaseModel):
@@ -50,6 +54,11 @@ class InsertConfig(BaseModel):
     fallback: str = "unicode_events"
 
 
+class AudioConfig(BaseModel):
+    sample_rate: int = Field(default=16000, ge=8000)
+    channels: int = Field(default=1, ge=1)
+
+
 class AppConfig(BaseModel):
     hotkey: HotkeyConfig = HotkeyConfig()
     asr: ASRConfig = ASRConfig()
@@ -57,6 +66,7 @@ class AppConfig(BaseModel):
     style: StyleConfig = StyleConfig()
     context: ContextConfig = ContextConfig()
     insert: InsertConfig = InsertConfig()
+    audio: AudioConfig = AudioConfig()
 
     @classmethod
     def load(cls, path: str | Path = "config.toml") -> "AppConfig":

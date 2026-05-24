@@ -70,4 +70,38 @@ python3 -m venv .venv
 .venv/bin/python -m pytest
 ```
 
-The live Aliyun ASR transport is intentionally isolated in `asr_evo/providers/aliyun_asr.py`; it should be completed and verified with real DashScope credentials before enabling production transcription.
+## Launch
+
+Create local config files first:
+
+```bash
+cp config.example.toml config.toml
+cp .env.example .env
+```
+
+Put your DashScope key in `.env`:
+
+```bash
+DASHSCOPE_API_KEY=sk-...
+```
+
+Start the menu bar app:
+
+```bash
+.venv/bin/asr-evo
+```
+
+The default hotkey is `cmd+shift+space`.
+
+1. Put the cursor in any text field.
+2. Press `cmd+shift+space` to start recording.
+3. Press `cmd+shift+space` again to stop.
+4. Wait for transcription, polishing, and native insertion.
+
+macOS should ask for Accessibility permission. Microphone permission may be requested by the terminal/Python runtime the first time recording starts.
+
+You can test provider credentials with an existing audio file before using the hotkey:
+
+```bash
+.venv/bin/asr-evo-transcribe /path/to/audio.wav
+```

@@ -1,12 +1,18 @@
 from __future__ import annotations
 
+import sys
+
 from .config import AppConfig
 
 
 def main() -> None:
     config = AppConfig.load()
-    print(f"ASR-EVO loaded config for hotkey: {config.hotkey.toggle}")
-    print("The macOS tray runtime will be wired in after provider credentials are configured.")
+    if sys.platform != "darwin":
+        raise SystemExit("ASR-EVO currently ships a runnable macOS runtime only.")
+
+    from .platforms.macos.runtime import MacOSDictationRuntime
+
+    MacOSDictationRuntime(config).run()
 
 
 if __name__ == "__main__":

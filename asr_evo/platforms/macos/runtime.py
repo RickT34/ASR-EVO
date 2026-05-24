@@ -1,0 +1,133 @@
+from __future__ import annotations
+
+import asyncio
+import sys
+import threading
+from dataclasses import dataclass
+
+from asr_evo.config import AppConfig
+from asr_evo.core.context import ContextStore
+from asr_evo.core.pipeline import DictationPipeline
+from asr_evo.core.state import DictationState
+from asr_evo.platforms.macos.frontmost import MacOSFrontmostAppProvider
+from asr_evo.platforms.macos.hotkey import MacOSHotkeyService
+from asr_evo.platforms.macos.inserter import MacOSTextInserter
+from asr_evo.platforms.macos.permissions import MacOSPermissions
+from asr_evo.platforms.macos.recorder import SoundDeviceRecorder
+from asr_evo.platforms.macos.tray import MacOSStatusTray
+from asr_evo.providers.factory import create_asr_provider, create_llm_provider
+
+
+@dataclass
+class RuntimeState:
+    state: DictationState = DictationState.IDLE
+    task: asyncio.Future | None = None
+
+
+class MacOSDictationRuntime:
+    def __init__(self, config: AppConfig) -> None:
+        if sys.platform != "darwin":
+            raise RuntimeError("The macOS runtime can only run on macOS")
+
+        self.config = config
+        self.state = RuntimeState()
+        self.loop = asyncio.new_event_loop()
+        self.loop_thread = threading.Thread(target=self._run_loop, name="asr-evo-async", daemon=True)
+
+        self.recorder = SoundDeviceRecorder(
+            sample_rate=config.audio.sample_rate,
+            channels=config.audio.channels,
+        )
+        self.context_store = ContextStore(
+            ttl_seconds=config.context.ttl_seconds,
+            max_items=config.context.max_items,
+            max_chars=config.context.max_chars,
+            scope=config.context.scope.value,
+        )
+        self.asr_provider = create_asr_provider(self.config)
+        self.llm_provider = create_llm_provider(self.config)
+        self.tray = MacOSStatusTray(
+            hotkey_label=config.hotkey.toggle,
+            on_toggle=self.toggle_dictation,
+            on_quit=self.quit,
+        )
+        self.tray_proxy = _StateTrackingTray(self)
+        self.hotkey = MacOSHotkeyService(config.hotkey.toggle)
+        self.hotkey.on_toggle(self.toggle_dictation)
+        self.permissions = MacOSPermissions()
+
+    def run(self) -> None:
+        from AppKit import NSApp, NSApplication, NSApplicationActivationPolicyAccessory
+
+        self.loop_thread.start()
+        NSApplication.sharedApplication().setActivationPolicy_(NSApplicationActivationPolicyAccessory)
+        self._update_permission_state()
+        self.hotkey.start()
+        if self.state.state != DictationState.ERROR:
+            self.tray.set_state(DictationState.IDLE.value)
+        NSApp.run()
+
+    def toggle_dictation(self) -> None:
+        if self.state.state == DictationState.RECORDING:
+            self.recorder.stop()
+            return
+        if self.state.state != DictationState.IDLE:
+            self.tray.set_state(self.state.state.value, "busy")
+            return
+
+        future = asyncio.run_coroutine_threadsafe(self._run_pipeline(), self.loop)
+        self.state.task = future
+
+    def quit(self) -> None:
+        from AppKit import NSApp
+
+        self.hotkey.stop()
+        if self.state.state == DictationState.RECORDING:
+            self.recorder.stop()
+        asyncio.run_coroutine_threadsafe(self._close_clients(), self.loop)
+        self.loop.call_soon_threadsafe(self.loop.stop)
+        NSApp.terminate_(None)
+
+    async def _run_pipeline(self) -> None:
+        try:
+            pipeline = DictationPipeline(
+                recorder=self.recorder,
+                asr=self.asr_provider,
+                llm=self.llm_provider,
+                inserter=MacOSTextInserter(),
+                app_provider=MacOSFrontmostAppProvider(),
+                context_store=self.context_store,
+                tray=self.tray_proxy,
+                style=self.config.style.mode,
+                custom_prompt=self.config.style.custom_prompt,
+            )
+            await pipeline.run_once()
+        except Exception as exc:
+            self.tray_proxy.set_state(DictationState.ERROR.value, str(exc))
+        finally:
+            if self.state.state != DictationState.ERROR:
+                self.tray_proxy.set_state(DictationState.IDLE.value)
+
+    def _run_loop(self) -> None:
+        asyncio.set_event_loop(self.loop)
+        self.loop.run_forever()
+
+    def _update_permission_state(self) -> None:
+        if not self.permissions.accessibility_trusted(prompt=True):
+            self.tray_proxy.set_state(DictationState.ERROR.value, "grant Accessibility permission")
+
+    async def _close_clients(self) -> None:
+        await self.asr_provider.aclose()
+        await self.llm_provider.aclose()
+
+
+class _StateTrackingTray:
+    def __init__(self, runtime: MacOSDictationRuntime) -> None:
+        self.runtime = runtime
+
+    def set_state(self, state: str, detail: str = "") -> None:
+        try:
+            self.runtime.state.state = DictationState(state)
+        except ValueError:
+            pass
+        self.runtime.tray.set_state(state, detail)
