@@ -16,12 +16,13 @@ base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 model = "qwen-plus"
 
 # 提示词风格配置。所有风格都来自 prompts_dir 目录中的 .txt/.md 文件。
-# 风格 id 是提示词文件名去掉扩展名，例如 polished.txt 对应 polished，会议纪要.txt 对应 会议纪要。
+# 风格 id 是提示词文件名去掉扩展名，例如 通用润色.txt 对应 通用润色。
+# 子文件夹会显示为子菜单，例如 写作/邮件.txt 对应 写作/邮件。
 [style]
-mode = "polished"
+mode = "通用润色"
 prompts_dir = "prompts"
 # 按应用绑定风格，key 是 bundle id，value 是风格 id。
-# 示例：{ "com.apple.TextEdit" = "polished", "md.obsidian" = "会议纪要" }
+# 示例：{ "com.apple.TextEdit" = "通用润色", "md.obsidian" = "会议纪要", "com.apple.mail" = "写作/邮件" }
 app_styles = {}
 
 # 短期上下文配置。开启后，最近听写记录会作为上下文发给 LLM，用于更连贯地润色。

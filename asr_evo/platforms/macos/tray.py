@@ -63,6 +63,7 @@ class MacOSStatusTray:
         self._app_binding_title = "当前应用绑定：未检测"
 
         self.menu = NSMenu.alloc().init()
+        self.menu.setDelegate_(self)
         self.hotkey_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
             f"快捷键：{hotkey_label}", None, ""
         )
@@ -135,7 +136,13 @@ class MacOSStatusTray:
         self.button.setToolTip_(status_text)
 
     def menuWillOpen_(self, menu) -> None:
-        if menu == self.prompt_menu:
+        self._refresh_menu_if_needed(menu)
+
+    def menuNeedsUpdate_(self, menu) -> None:
+        self._refresh_menu_if_needed(menu)
+
+    def _refresh_menu_if_needed(self, menu) -> None:
+        if menu in (self.menu, self.prompt_menu):
             self.on_refresh_app_binding()
 
     def set_styles(self, styles: list[StyleDefinition], selected_style_id: str) -> None:
@@ -150,18 +157,13 @@ class MacOSStatusTray:
         self._selected_style_id = selected_style_id
         self.prompt_menu.removeAllItems()
         self._style_targets = []
-        for group_index, group in enumerate(_group_styles(styles)):
-            if group_index > 0:
-                self.prompt_menu.addItem_(NSMenuItem.separatorItem())
-            for style in group.styles:
-                target_item = _MenuTargetItem.create_with_arg(
-                    title=style.label,
-                    action=self.on_select_style,
-                    arg=style.id,
-                )
-                target_item.item.setState_(1 if style.id == selected_style_id else 0)
-                self.prompt_menu.addItem_(target_item.item)
-                self._style_targets.append(target_item)
+        _add_style_tree_to_menu(
+            menu=self.prompt_menu,
+            node=_build_style_tree(styles),
+            selected_style_id=selected_style_id,
+            action=self.on_select_style,
+            targets=self._style_targets,
+        )
         self.prompt_menu.addItem_(NSMenuItem.separatorItem())
         binding_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
             self._app_binding_title, None, ""
@@ -250,13 +252,76 @@ class MacOSStatusTray:
             self.history_menu.addItem_(item)
             self._history_targets.extend([raw, final])
 
-@dataclass(frozen=True)
-class _StyleGroup:
+@dataclass
+class _StyleMenuNode:
+    name: str
     styles: list[StyleDefinition]
+    children: dict[str, "_StyleMenuNode"]
 
 
-def _group_styles(styles: list[StyleDefinition]) -> list[_StyleGroup]:
-    return [_StyleGroup(styles)] if styles else []
+def _build_style_tree(styles: list[StyleDefinition]) -> _StyleMenuNode:
+    root = _StyleMenuNode(name="", styles=[], children={})
+    for style in styles:
+        node = root
+        for category in style.category:
+            node = node.children.setdefault(
+                category,
+                _StyleMenuNode(name=category, styles=[], children={}),
+            )
+        node.styles.append(style)
+    return root
+
+
+def _add_style_tree_to_menu(
+    *,
+    menu,
+    node: _StyleMenuNode,
+    selected_style_id: str,
+    action: Callable[[str], None],
+    targets: list["_MenuTargetItem"],
+) -> None:
+    from AppKit import NSMenu, NSMenuItem
+
+    for style in sorted(node.styles, key=lambda item: item.label.lower()):
+        _add_style_item(
+            menu=menu,
+            style=style,
+            selected_style_id=selected_style_id,
+            action=action,
+            targets=targets,
+        )
+    if node.styles and node.children:
+        menu.addItem_(NSMenuItem.separatorItem())
+    for child in sorted(node.children.values(), key=lambda item: item.name.lower()):
+        child_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(child.name, None, "")
+        child_menu = NSMenu.alloc().initWithTitle_(child.name)
+        _add_style_tree_to_menu(
+            menu=child_menu,
+            node=child,
+            selected_style_id=selected_style_id,
+            action=action,
+            targets=targets,
+        )
+        child_item.setSubmenu_(child_menu)
+        menu.addItem_(child_item)
+
+
+def _add_style_item(
+    *,
+    menu,
+    style: StyleDefinition,
+    selected_style_id: str,
+    action: Callable[[str], None],
+    targets: list["_MenuTargetItem"],
+) -> None:
+    target_item = _MenuTargetItem.create_with_arg(
+        title=style.label,
+        action=action,
+        arg=style.id,
+    )
+    target_item.item.setState_(1 if style.id == selected_style_id else 0)
+    menu.addItem_(target_item.item)
+    targets.append(target_item)
 
 
 class _MenuTargetItem:

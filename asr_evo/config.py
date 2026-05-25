@@ -24,7 +24,7 @@ class LLMConfig(BaseModel):
 
 
 class StyleConfig(BaseModel):
-    mode: str = "polished"
+    mode: str = "通用润色"
     prompts_dir: str = "prompts"
     app_styles: dict[str, str] = Field(default_factory=dict)
 
@@ -147,7 +147,8 @@ CONFIG_COMMENTS: dict[str, list[str]] = {
     ],
     "style": [
         "提示词风格配置。所有风格都来自 prompts_dir 目录中的 .txt/.md 文件。",
-        "风格 id 是提示词文件名去掉扩展名，例如 polished.txt 对应 polished，会议纪要.txt 对应 会议纪要。",
+        "风格 id 是提示词文件名去掉扩展名，例如 通用润色.txt 对应 通用润色。",
+        "子文件夹会显示为子菜单，例如 写作/邮件.txt 对应 写作/邮件。",
     ],
     "context": [
         "短期上下文配置。开启后，最近听写记录会作为上下文发给 LLM，用于更连贯地润色。",
@@ -161,7 +162,7 @@ CONFIG_COMMENTS: dict[str, list[str]] = {
 FIELD_COMMENTS: dict[tuple[str, str], list[str]] = {
     ("style", "app_styles"): [
         "按应用绑定风格，key 是 bundle id，value 是风格 id。",
-        "示例：{ \"com.apple.TextEdit\" = \"polished\", \"md.obsidian\" = \"会议纪要\" }",
+        "示例：{ \"com.apple.TextEdit\" = \"通用润色\", \"md.obsidian\" = \"会议纪要\", \"com.apple.mail\" = \"写作/邮件\" }",
     ],
     ("context", "ttl_seconds"): ["超过这个时间的短期上下文不会继续传给 LLM。"],
     ("context", "max_items"): ["最多传入多少条近期听写记录。"],

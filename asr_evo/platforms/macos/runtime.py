@@ -23,6 +23,7 @@ from asr_evo.config import (
 )
 from asr_evo.core.context import ContextStore
 from asr_evo.core.pipeline import DictationPipeline, DictationPipelineError
+from asr_evo.core.ports import AppContext
 from asr_evo.core.state import DictationState
 from asr_evo.postprocess.styles import StyleRegistry
 from asr_evo.platforms.macos.frontmost import MacOSFrontmostAppProvider
@@ -51,9 +52,8 @@ class MacOSDictationRuntime:
         self.loop = asyncio.new_event_loop()
         self.loop_thread = threading.Thread(target=self._run_loop, name="asr-evo-async", daemon=True)
         self.styles = StyleRegistry(prompts_dir=config.style.prompts_dir)
-        self.current_style_id = (
-            config.style.mode if self.styles.has(config.style.mode) else self.styles.default_style_id()
-        )
+        self.current_style_id = self._default_style_id()
+        self._last_target_app = AppContext()
 
         self.recorder = SoundDeviceRecorder(
             sample_rate=AUDIO_SAMPLE_RATE,
@@ -81,7 +81,7 @@ class MacOSDictationRuntime:
             on_reload_config=self.reload_config,
             on_open_config=self.open_config_file,
             on_clear_app_style=self.clear_current_app_style,
-            on_refresh_app_binding=self.update_app_binding_summary,
+            on_refresh_app_binding=self.sync_style_for_current_app,
             on_refresh_stats=self.refresh_menu_summaries,
             on_copy_history_raw=self.copy_history_raw,
             on_copy_history_final=self.copy_history_final,
@@ -114,7 +114,7 @@ class MacOSDictationRuntime:
             self.tray.set_state(self.state.state.value, "busy")
             return
 
-        self.apply_app_style_for_current_app()
+        self.sync_style_for_current_app()
         self.state.state = DictationState.RECORDING
         self.tray.set_state(DictationState.RECORDING.value)
         future = asyncio.run_coroutine_threadsafe(self._run_pipeline(), self.loop)
@@ -133,13 +133,13 @@ class MacOSDictationRuntime:
         self.current_style_id = style_id
         self.bind_current_style_to_app(show_state=False)
         self.tray.set_styles(self.styles.all(), self.current_style_id)
-        self.update_app_binding_summary()
+        self.update_app_binding_summary(self._last_target_app)
         self.tray.set_state(self.state.state.value, f"style: {self.styles.get(style_id).label}")
 
     def reload_styles(self) -> None:
         self.styles.reload()
         if not self.styles.has(self.current_style_id):
-            self.current_style_id = self.styles.default_style_id()
+            self.current_style_id = self._default_style_id()
         self.tray.set_styles(self.styles.all(), self.current_style_id)
         self.update_app_binding_summary()
         self.tray.set_state(self.state.state.value, "已重新加载提示词")
@@ -160,7 +160,7 @@ class MacOSDictationRuntime:
         self.tray.set_state(self.state.state.value, "已重新加载配置")
 
     def bind_current_style_to_app(self, *, show_state: bool = True) -> None:
-        app = self.app_provider.current_app()
+        app = self._target_app_context()
         if not app.bundle_id:
             if show_state:
                 self.tray.set_state(self.state.state.value, "未识别当前应用")
@@ -169,36 +169,42 @@ class MacOSDictationRuntime:
         config.style.app_styles[app.bundle_id] = self.current_style_id
         self.apply_config(config, persist=True)
         style = self.styles.get(self.current_style_id)
-        self.update_app_binding_summary()
+        self.update_app_binding_summary(app)
         if show_state:
             self.tray.set_state(self.state.state.value, f"{app.app_name or app.bundle_id} -> {style.label}")
 
     def clear_current_app_style(self) -> None:
-        app = self.app_provider.current_app()
+        app = self._target_app_context()
         if not app.bundle_id:
             self.tray.set_state(self.state.state.value, "未识别当前应用")
             return
         config = self.config.model_copy(deep=True)
         removed = config.style.app_styles.pop(app.bundle_id, None)
         self.apply_config(config, persist=True)
-        self.update_app_binding_summary()
+        self.current_style_id = self._default_style_id()
+        self.tray.set_styles(self.styles.all(), self.current_style_id)
+        self.update_app_binding_summary(app)
         detail = "已清除当前应用绑定" if removed else "当前应用没有绑定"
         self.tray.set_state(self.state.state.value, detail)
 
-    def apply_app_style_for_current_app(self) -> None:
-        app = self.app_provider.current_app()
+    def sync_style_for_current_app(self) -> None:
+        app = self._capture_current_app()
         if not app.bundle_id:
+            self.current_style_id = self._default_style_id()
+            self.tray.set_styles(self.styles.all(), self.current_style_id)
+            self.update_app_binding_summary(app)
             return
-        style_id = self.config.style.app_styles.get(app.bundle_id)
-        if not style_id:
-            return
+        style_id = self.config.style.app_styles.get(app.bundle_id) or self._default_style_id()
         if not self.styles.has(style_id):
             self.tray.set_state(self.state.state.value, f"应用绑定的风格不存在：{style_id}")
+            self.current_style_id = self._default_style_id()
+            self.tray.set_styles(self.styles.all(), self.current_style_id)
+            self.update_app_binding_summary(app)
             return
         if self.current_style_id != style_id:
             self.current_style_id = style_id
-            self.tray.set_styles(self.styles.all(), self.current_style_id)
-            self.update_app_binding_summary()
+        self.tray.set_styles(self.styles.all(), self.current_style_id)
+        self.update_app_binding_summary(app)
 
     def copy_history_raw(self, record_id: str) -> None:
         self.copy_history_text(record_id, "raw_text", "已复制原始转写")
@@ -217,8 +223,8 @@ class MacOSDictationRuntime:
         self._copy_to_pasteboard(str(record.get(field, "")))
         self.tray.set_state(self.state.state.value, detail)
 
-    def update_app_binding_summary(self) -> None:
-        app = self.app_provider.current_app()
+    def update_app_binding_summary(self, app: AppContext | None = None) -> None:
+        app = app or self._capture_current_app()
         if not app.bundle_id:
             self.tray.set_app_binding_summary("当前应用绑定：未识别当前应用")
             return
@@ -233,6 +239,22 @@ class MacOSDictationRuntime:
             label = f"{style_id}（不存在）"
         self.tray.set_app_binding_summary(f"当前应用绑定：{app_name} -> {label}")
 
+    def _default_style_id(self) -> str:
+        return self.config.style.mode if self.styles.has(self.config.style.mode) else self.styles.default_style_id()
+
+    def _capture_current_app(self) -> AppContext:
+        app = self.app_provider.current_app()
+        if app.bundle_id:
+            self._last_target_app = app
+        return app
+
+    def _target_app_context(self) -> AppContext:
+        app = self.app_provider.current_app()
+        if app.bundle_id:
+            self._last_target_app = app
+            return app
+        return self._last_target_app
+
     def apply_config(self, config: AppConfig, *, persist: bool = False) -> None:
         old_config = self.config
         self.config = config
@@ -244,9 +266,7 @@ class MacOSDictationRuntime:
         self.context_store.scope = CONTEXT_SCOPE
         self.styles = StyleRegistry(prompts_dir=config.style.prompts_dir)
         if not self.styles.has(self.current_style_id):
-            self.current_style_id = (
-                config.style.mode if self.styles.has(config.style.mode) else self.styles.default_style_id()
-            )
+            self.current_style_id = self._default_style_id()
         self.tray.set_styles(self.styles.all(), self.current_style_id)
         self.update_app_binding_summary()
         self.tray.set_status_config(config.status)

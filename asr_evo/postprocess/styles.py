@@ -10,6 +10,7 @@ class StyleDefinition:
     label: str
     prompt: str
     source: str
+    category: tuple[str, ...] = ()
 
 
 class StyleRegistry:
@@ -25,17 +26,21 @@ class StyleRegistry:
             prompt = prompt_file.read_text(encoding="utf-8").strip()
             if not prompt:
                 continue
-            style_id = _style_id_from_file(prompt_file)
+            style_id = _style_id_from_file(self.prompts_dir, prompt_file)
             styles[style_id] = StyleDefinition(
                 id=style_id,
                 label=prompt_file.name,
                 prompt=prompt,
                 source=str(prompt_file),
+                category=_style_category(self.prompts_dir, prompt_file),
             )
         self._styles = styles
 
     def all(self) -> list[StyleDefinition]:
-        return sorted(self._styles.values(), key=lambda style: style.label.lower())
+        return sorted(
+            self._styles.values(),
+            key=lambda style: (tuple(part.lower() for part in style.category), style.label.lower()),
+        )
 
     def get(self, style_id: str) -> StyleDefinition:
         if style_id in self._styles:
@@ -46,8 +51,6 @@ class StyleRegistry:
         return style_id in self._styles
 
     def default_style_id(self) -> str:
-        if "polished" in self._styles:
-            return "polished"
         styles = self.all()
         if not styles:
             raise RuntimeError(f"No prompt files found in {self.prompts_dir}")
@@ -58,12 +61,23 @@ class StyleRegistry:
             return []
         return [
             path
-            for path in self.prompts_dir.iterdir()
+            for path in self.prompts_dir.rglob("*")
             if path.is_file()
             and path.suffix.lower() in {".txt", ".md"}
             and path.stem.lower() != "readme"
-            and not path.name.startswith(".")
+            and not _has_hidden_part(path.relative_to(self.prompts_dir))
         ]
 
-def _style_id_from_file(path: Path) -> str:
-    return path.stem
+
+def _style_id_from_file(prompts_dir: Path, path: Path) -> str:
+    relative = path.relative_to(prompts_dir).with_suffix("")
+    return relative.as_posix()
+
+
+def _style_category(prompts_dir: Path, path: Path) -> tuple[str, ...]:
+    relative = path.relative_to(prompts_dir)
+    return tuple(relative.parts[:-1])
+
+
+def _has_hidden_part(path: Path) -> bool:
+    return any(part.startswith(".") for part in path.parts)

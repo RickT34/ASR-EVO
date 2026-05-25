@@ -29,9 +29,9 @@ asr_evo/
 
 托盘菜单有 `润色风格与提示词` 子菜单。默认风格也是普通提示词文件，位于 `prompts/`：
 
-- `exact.txt`：忠实轻修，尽量保留原话，只修正明显听写问题。
-- `polished.txt`：通用润色，整理成自然清楚、可直接使用的中文。
-- `concise.txt`：简洁压缩，删去冗余口语，保留关键信息。
+- `忠实轻修.txt`：尽量保留原话，只修正明显听写问题。
+- `通用润色.txt`：整理成自然清楚、可直接使用的中文。
+- `简洁压缩.txt`：删去冗余口语，保留关键信息。
 - `工作聊天.txt`：适合 Slack、飞书、企业微信、微信等短消息。
 - `邮件.txt`：整理成可直接发送的邮件正文。
 - `会议纪要.txt`：整理讨论结论、决定、行动项和待确认事项。
@@ -41,12 +41,12 @@ asr_evo/
 
 ```toml
 [style]
-mode = "polished"
+mode = "通用润色"
 prompts_dir = "prompts"
 app_styles = {}
 ```
 
-把 `.txt` 或 `.md` 文件放到 `prompts/`。每个非空文件都会成为托盘菜单里的一个风格；例如 `工作聊天.txt` 会显示为 `工作聊天.txt`，风格 id 是 `工作聊天`。默认文件 `exact.txt`、`polished.txt`、`concise.txt` 的风格 id 分别是 `exact`、`polished`、`concise`。`README.md`、空文件和隐藏文件不会被加载为风格。
+把 `.txt` 或 `.md` 文件放到 `prompts/`。每个非空文件都会成为托盘菜单里的一个风格；例如 `工作聊天.txt` 会显示为 `工作聊天.txt`，风格 id 是 `工作聊天`。子文件夹会显示为子菜单，例如 `prompts/写作/邮件.txt` 会显示在 `写作` 子菜单中，风格 id 是 `写作/邮件`。`README.md`、空文件和隐藏文件不会被加载为风格。
 
 `润色风格与提示词` 菜单支持：
 
@@ -57,16 +57,16 @@ app_styles = {}
 
 提示词文件的新增、删除、改名和内容编辑都在文件夹中完成。修改后点击主菜单 `重新加载配置`，或重启应用。
 
-按应用绑定会写入 `app_styles`。在某个应用里切换风格时，程序会自动把该应用绑定到所选风格。例如下面配置会让 TextEdit 自动使用 `polished.txt`，让某个自定义会议提示词自动用于 Obsidian：
+按应用绑定会写入 `app_styles`。在某个应用里切换风格时，程序会自动把该应用绑定到所选风格。例如下面配置会让 TextEdit 自动使用 `通用润色.txt`，让某个自定义会议提示词自动用于 Obsidian：
 
 ```toml
 [style]
-mode = "polished"
+mode = "通用润色"
 prompts_dir = "prompts"
-app_styles = { "com.apple.TextEdit" = "polished", "md.obsidian" = "会议纪要" }
+app_styles = { "com.apple.TextEdit" = "通用润色", "md.obsidian" = "会议纪要", "com.apple.mail" = "写作/邮件" }
 ```
 
-开始听写时，程序会根据当前前台应用自动切换到对应风格。
+打开菜单和开始听写时，程序都会根据当前前台应用自动切换到对应风格。没有绑定过的应用使用 `mode` 指定的全局默认风格。
 
 ## 配置
 
