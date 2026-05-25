@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
+from asr_evo.core.errors import ErrorFeedback
+
 
 @dataclass(frozen=True)
 class AppContext:
@@ -55,3 +57,5 @@ class FrontmostAppProvider(Protocol):
 
 class TrayUI(Protocol):
     def set_state(self, state: str, detail: str = "") -> None: ...
+
+    def set_error_feedback(self, feedback: ErrorFeedback | None) -> None: ...

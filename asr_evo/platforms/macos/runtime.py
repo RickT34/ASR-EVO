@@ -22,6 +22,7 @@ from asr_evo.config import (
     AppConfig,
 )
 from asr_evo.core.context import ContextStore
+from asr_evo.core.errors import ErrorFeedback, feedback_from_exception
 from asr_evo.core.pipeline import DictationPipeline, DictationPipelineError
 from asr_evo.core.ports import AppContext
 from asr_evo.core.state import DictationState
@@ -40,6 +41,7 @@ from asr_evo.storage.history import HistoryStore
 class RuntimeState:
     state: DictationState = DictationState.IDLE
     task: asyncio.Future | None = None
+    current_error: ErrorFeedback | None = None
 
 
 class MacOSDictationRuntime:
@@ -85,6 +87,8 @@ class MacOSDictationRuntime:
             on_refresh_stats=self.refresh_menu_summaries,
             on_copy_history_raw=self.copy_history_raw,
             on_copy_history_final=self.copy_history_final,
+            on_copy_error=self.copy_current_error,
+            on_clear_error=self.clear_error,
             on_quit=self.quit,
         )
         self.tray_proxy = _StateTrackingTray(self)
@@ -110,6 +114,8 @@ class MacOSDictationRuntime:
         self.start_dictation()
 
     def start_dictation(self) -> None:
+        if self.state.state == DictationState.ERROR:
+            self.clear_error()
         if self.state.state != DictationState.IDLE:
             self.tray.set_state(self.state.state.value, "busy")
             return
@@ -128,7 +134,7 @@ class MacOSDictationRuntime:
         if not self.styles.has(style_id):
             self.reload_styles()
             if not self.styles.has(style_id):
-                self.tray.set_state(DictationState.ERROR.value, f"style not found: {style_id}")
+                self._show_error(RuntimeError(f"style not found: {style_id}"))
                 return
         self.current_style_id = style_id
         self.bind_current_style_to_app(show_state=False)
@@ -222,6 +228,20 @@ class MacOSDictationRuntime:
             return
         self._copy_to_pasteboard(str(record.get(field, "")))
         self.tray.set_state(self.state.state.value, detail)
+
+    def copy_current_error(self) -> None:
+        if self.state.current_error is None:
+            self.tray.set_state(self.state.state.value, "暂无错误详情")
+            return
+        self._copy_to_pasteboard(self.state.current_error.copy_text())
+        self.tray.set_state(self.state.state.value, "已复制错误详情")
+
+    def clear_error(self) -> None:
+        self.state.current_error = None
+        self.tray.set_error_feedback(None)
+        if self.state.state == DictationState.ERROR:
+            self.state.state = DictationState.IDLE
+            self.tray.set_state(DictationState.IDLE.value)
 
     def update_app_binding_summary(self, app: AppContext | None = None) -> None:
         app = app or self._capture_current_app()
@@ -348,9 +368,9 @@ class MacOSDictationRuntime:
             if self.history_store is not None and exc.record is not None:
                 self.history_store.add(exc.record, audio_seconds=exc.audio_seconds)
                 self.refresh_menu_summaries()
-            self.tray_proxy.set_state(DictationState.ERROR.value, str(exc))
+            self._show_error(exc, raw_text_saved=exc.record is not None)
         except Exception as exc:
-            self.tray_proxy.set_state(DictationState.ERROR.value, str(exc))
+            self._show_error(exc)
         finally:
             if self.state.state != DictationState.ERROR:
                 self.tray_proxy.set_state(DictationState.IDLE.value)
@@ -361,7 +381,7 @@ class MacOSDictationRuntime:
 
     def _update_permission_state(self) -> None:
         if not self.permissions.accessibility_trusted(prompt=True):
-            self.tray_proxy.set_state(DictationState.ERROR.value, "grant Accessibility permission")
+            self._show_error(RuntimeError("grant Accessibility permission"))
 
     async def _close_clients(self) -> None:
         await self.asr_provider.aclose()
@@ -374,6 +394,12 @@ class MacOSDictationRuntime:
         pasteboard.clearContents()
         pasteboard.setString_forType_(text, NSPasteboardTypeString)
 
+    def _show_error(self, exc: Exception, *, raw_text_saved: bool = False) -> None:
+        feedback = feedback_from_exception(exc, raw_text_saved=raw_text_saved)
+        self.state.current_error = feedback
+        self.tray_proxy.set_error_feedback(feedback)
+        self.tray_proxy.set_state(DictationState.ERROR.value, feedback.tooltip)
+
 
 class _StateTrackingTray:
     def __init__(self, runtime: MacOSDictationRuntime) -> None:
@@ -385,3 +411,7 @@ class _StateTrackingTray:
         except ValueError:
             pass
         self.runtime.tray.set_state(state, detail)
+
+    def set_error_feedback(self, feedback: ErrorFeedback | None) -> None:
+        self.runtime.state.current_error = feedback
+        self.runtime.tray.set_error_feedback(feedback)

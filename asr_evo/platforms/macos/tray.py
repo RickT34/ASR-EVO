@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from threading import current_thread, main_thread
 
 from asr_evo.config import StatusConfig
+from asr_evo.core.errors import ErrorFeedback
 from asr_evo.postprocess.styles import StyleDefinition
 from asr_evo.storage.history import AppStats
 
@@ -15,6 +16,10 @@ class ConsoleTrayUI:
     def set_state(self, state: str, detail: str = "") -> None:
         suffix = f" {detail}" if detail else ""
         print(f"[asr-evo] {state}{suffix}")
+
+    def set_error_feedback(self, feedback: ErrorFeedback | None) -> None:
+        if feedback is not None:
+            print(f"[asr-evo] {feedback.copy_text()}")
 
 
 class MacOSStatusTray:
@@ -34,6 +39,8 @@ class MacOSStatusTray:
         on_refresh_stats: Callable[[], None],
         on_copy_history_raw: Callable[[str], None],
         on_copy_history_final: Callable[[str], None],
+        on_copy_error: Callable[[], None],
+        on_clear_error: Callable[[], None],
         on_quit: Callable[[], None],
     ) -> None:
         from AppKit import (
@@ -56,11 +63,15 @@ class MacOSStatusTray:
         self.on_refresh_stats = on_refresh_stats
         self.on_copy_history_raw = on_copy_history_raw
         self.on_copy_history_final = on_copy_history_final
+        self.on_copy_error = on_copy_error
+        self.on_clear_error = on_clear_error
         self._style_targets: list[_MenuTargetItem] = []
         self._history_targets: list[_MenuTargetItem] = []
+        self._error_targets: list[_MenuTargetItem] = []
         self._styles = styles
         self._selected_style_id = selected_style_id
         self._app_binding_title = "当前应用绑定：未检测"
+        self._error_feedback: ErrorFeedback | None = None
 
         self.menu = NSMenu.alloc().init()
         self.menu.setDelegate_(self)
@@ -99,6 +110,11 @@ class MacOSStatusTray:
         self.prompt_menu = NSMenu.alloc().initWithTitle_("润色风格与提示词")
         self.prompt_menu.setDelegate_(self)
         self.prompt_menu_item.setSubmenu_(self.prompt_menu)
+        self.error_menu_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+            "当前错误", None, ""
+        )
+        self.error_menu = NSMenu.alloc().initWithTitle_("当前错误")
+        self.error_menu_item.setSubmenu_(self.error_menu)
         self.refresh_stats_item = _MenuTargetItem.create(
             title="刷新统计",
             action=on_refresh_stats,
@@ -110,6 +126,7 @@ class MacOSStatusTray:
         )
 
         self.menu.addItem_(self.hotkey_item)
+        self.menu.addItem_(self.error_menu_item)
         self.menu.addItem_(self.prompt_menu_item)
         self.menu.addItem_(NSMenuItem.separatorItem())
         self.menu.addItem_(self.stats_menu_item)
@@ -120,6 +137,7 @@ class MacOSStatusTray:
         self.menu.addItem_(self.quit_item.item)
         self.status_item.setMenu_(self.menu)
         self.set_styles(styles, selected_style_id)
+        self.set_error_feedback(None)
 
     def set_state(self, state: str, detail: str = "") -> None:
         if current_thread() is not main_thread():
@@ -134,6 +152,34 @@ class MacOSStatusTray:
         if detail:
             status_text = f"{status_text}：{detail}"
         self.button.setToolTip_(status_text)
+
+    def set_error_feedback(self, feedback: ErrorFeedback | None) -> None:
+        if current_thread() is not main_thread():
+            from PyObjCTools import AppHelper
+
+            AppHelper.callAfter(self.set_error_feedback, feedback)
+            return
+        from AppKit import NSMenuItem
+
+        self._error_feedback = feedback
+        self._error_targets = []
+        self.error_menu.removeAllItems()
+        if feedback is None:
+            self.error_menu_item.setHidden_(True)
+            return
+
+        self.error_menu_item.setHidden_(False)
+        self.error_menu_item.setTitle_(f"当前错误：{feedback.title}")
+        for title in _error_feedback_lines(feedback):
+            item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(title, None, "")
+            item.setEnabled_(False)
+            self.error_menu.addItem_(item)
+        self.error_menu.addItem_(NSMenuItem.separatorItem())
+        copy_item = _MenuTargetItem.create(title="复制错误详情", action=self.on_copy_error)
+        clear_item = _MenuTargetItem.create(title="清除错误状态", action=self.on_clear_error)
+        self.error_menu.addItem_(copy_item.item)
+        self.error_menu.addItem_(clear_item.item)
+        self._error_targets.extend([copy_item, clear_item])
 
     def menuWillOpen_(self, menu) -> None:
         self._refresh_menu_if_needed(menu)
@@ -364,6 +410,18 @@ def _readonly_preview(label: str, value: str) -> object:
     item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(f"{label}：{text}", None, "")
     item.setEnabled_(False)
     return item
+
+
+def _error_feedback_lines(feedback: ErrorFeedback) -> list[str]:
+    lines = [
+        f"原因：{_ellipsize(feedback.detail, 42)}",
+        f"建议：{_ellipsize(feedback.suggestion, 52)}",
+    ]
+    if feedback.raw_text_saved:
+        lines.append("原始转写已保存到历史记录")
+    if feedback.technical_detail and feedback.technical_detail != feedback.detail:
+        lines.append(f"技术细节：{_ellipsize(feedback.technical_detail, 52)}")
+    return lines
 
 
 def _ellipsize(text: str, limit: int) -> str:
