@@ -1,0 +1,134 @@
+# Architecture
+
+ASR-EVO 分成三层：核心流水线、服务供应商适配器、平台适配器。核心层不依赖 macOS，也不依赖具体 ASR/LLM provider；平台层负责快捷键、录音、文本插入、托盘菜单和权限。
+
+## Directory Layout
+
+```text
+asr_evo/
+  app.py                    # CLI entry point for the tray app
+  config.py                 # TOML config model and hardcoded internal defaults
+  core/
+    ports.py                # Protocol interfaces used by the core pipeline
+    pipeline.py             # one dictation lifecycle: record -> ASR -> LLM -> insert
+    context.py              # short-lived in-memory context
+    state.py                # tray/runtime state enum
+  providers/
+    aliyun_asr.py           # DashScope Qwen ASR adapter
+    openai_compat_llm.py    # OpenAI-compatible chat completions adapter
+    http_retry.py           # retry and provider error normalization
+    factory.py              # config -> provider instances
+  postprocess/
+    prompts.py              # message construction for LLM post-processing
+    styles.py               # prompt-file registry
+  platforms/
+    macos/
+      runtime.py            # orchestrates macOS services and core pipeline
+      tray.py               # NSStatusItem menu
+      hotkey.py             # Quartz event tap
+      recorder.py           # sounddevice recording
+      inserter.py           # pasteboard/accessibility/unicode insertion
+      frontmost.py          # frontmost app detection
+      permissions.py        # macOS permission checks
+  storage/
+    history.py              # SQLite history and statistics
+```
+
+## Core Flow
+
+```text
+hotkey
+  -> MacOSDictationRuntime.start_dictation()
+  -> DictationPipeline.run_once()
+     -> Recorder.record_until_stopped()
+     -> ASRProvider.transcribe(audio)
+     -> ContextStore.render_for_prompt(app)
+     -> LLMProvider.polish(raw_text, context, prompt_instruction)
+     -> TextInserter.insert(final_text)
+     -> ContextStore.add(record)
+     -> HistoryStore.add(record)
+```
+
+`DictationPipeline` catches failures after ASR succeeds and wraps them in `DictationPipelineError` with the raw transcript attached. The runtime persists that partial record, so users do not lose text when LLM or insertion fails.
+
+## Prompt Styles
+
+`StyleRegistry` recursively scans `prompts_dir` for non-empty `.txt` and `.md` files.
+
+```text
+prompts/通用润色.txt       -> id: 通用润色, category: ()
+prompts/情景/邮件.txt     -> id: 情景/邮件, category: ("情景",)
+```
+
+The tray renders `category` as nested submenus. Runtime stores selected styles by id, so app bindings remain UI-independent:
+
+```toml
+[style]
+app_styles = { "com.apple.mail" = "情景/邮件" }
+```
+
+## Runtime State
+
+The macOS runtime owns long-lived platform services:
+
+- `MacOSHotkeyService`
+- `SoundDeviceRecorder`
+- `MacOSStatusTray`
+- provider HTTP clients
+- `ContextStore`
+- optional `HistoryStore`
+
+The AppKit main thread runs the tray and event tap. Async provider calls run on a dedicated asyncio loop thread. The runtime prevents overlapping dictation runs by switching state synchronously before scheduling the pipeline.
+
+## Platform Boundaries
+
+Core code talks to `Protocol`s in `core/ports.py`:
+
+- `Recorder`
+- `ASRProvider`
+- `LLMProvider`
+- `TextInserter`
+- `FrontmostAppProvider`
+- `TrayUI`
+
+Future Windows/Linux support should implement these ports and keep the dictation pipeline unchanged.
+
+## Configuration Philosophy
+
+`config.toml` exposes only user-facing knobs:
+
+- hotkey and mode
+- ASR/LLM model and base URL
+- prompt directory, default style, app bindings
+- context enabled/TTL/max items
+- status bar labels
+
+Internal choices such as storage path, insertion mode, ASR language, context scope and audio sample rate are currently constants in `config.py`. They can be promoted to config later if real users need them.
+
+## Data and Privacy
+
+Local files intentionally ignored by Git:
+
+- `.env`
+- `config.toml`
+- `data/`
+- `*.sqlite3`
+
+The app sends audio to the ASR provider and sends raw transcript/context/prompt instructions to the LLM provider. SQLite history stores raw and final text locally.
+
+## Release Checklist
+
+Before tagging a release:
+
+```bash
+.venv/bin/python -m ruff check .
+.venv/bin/python -m pytest
+git status --short
+```
+
+Also verify:
+
+- `.env`, `config.toml`, `data/` and `.DS_Store` are not tracked
+- default prompt files exist and are useful in Chinese
+- `config.example.toml` matches current config fields
+- `README.md` quick start works on a clean clone
