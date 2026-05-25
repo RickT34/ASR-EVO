@@ -33,6 +33,11 @@ ttl_seconds = 600
 # 最多传入多少条近期听写记录。
 max_items = 20
 
+# 录音输入配置。input_device 为空表示跟随系统默认输入设备。
+# 也可以填写 sounddevice 设备编号；在托盘菜单切换后会自动保存。
+[audio]
+input_device = ""
+
 # 状态栏图标和提示文字。icon 会直接显示在 macOS 状态栏中，建议保持简短。
 [status]
 idle_icon = "ASR"

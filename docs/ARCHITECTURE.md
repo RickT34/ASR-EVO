@@ -76,7 +76,7 @@ The macOS runtime owns long-lived platform services:
 - `MacOSStatusTray`
 - provider HTTP clients
 - `ContextStore`
-- optional `HistoryStore`
+- `HistoryStore`
 
 The AppKit main thread runs the tray and event tap. Async provider calls run on a dedicated asyncio loop thread. The runtime prevents overlapping dictation runs by switching state synchronously before scheduling the pipeline.
 
@@ -101,6 +101,7 @@ Future Windows/Linux support should implement these ports and keep the dictation
 - ASR/LLM model and base URL
 - prompt directory, default style, app bindings
 - context enabled/TTL/max items
+- audio input device selection
 - status bar labels
 
 Internal choices such as storage path, insertion mode, ASR language, context scope and audio sample rate are currently constants in `config.py`. They can be promoted to config later if real users need them.

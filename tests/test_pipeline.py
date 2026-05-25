@@ -4,7 +4,12 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from asr_evo.core.context import ContextStore, DictationRecord
-from asr_evo.core.pipeline import DictationPipeline, DictationPipelineError
+from asr_evo.core.pipeline import (
+    DictationDependencies,
+    DictationOptions,
+    DictationPipeline,
+    DictationPipelineError,
+)
 from asr_evo.core.ports import AppContext, AudioClip, Transcript
 
 
@@ -39,9 +44,6 @@ class FakeInserter:
     def __init__(self) -> None:
         self.text = None
 
-    def can_insert(self) -> bool:
-        return True
-
     async def insert(self, text: str) -> None:
         self.text = text
 
@@ -75,16 +77,20 @@ async def test_pipeline_disables_context_and_deletes_audio(tmp_path: Path) -> No
     llm = FakeLLM()
 
     result = await DictationPipeline(
-        recorder=FakeRecorder(audio),
-        asr=FakeASR(),
-        llm=llm,
-        inserter=FakeInserter(),
-        app_provider=FakeAppProvider(),
-        context_store=store,
-        tray=FakeTray(),
-        style="polished",
-        prompt_instruction="整理为自然清楚的中文。",
-        context_enabled=False,
+        dependencies=DictationDependencies(
+            recorder=FakeRecorder(audio),
+            asr=FakeASR(),
+            llm=llm,
+            inserter=FakeInserter(),
+            app_provider=FakeAppProvider(),
+            context_store=store,
+            tray=FakeTray(),
+        ),
+        options=DictationOptions(
+            style="polished",
+            prompt_instruction="整理为自然清楚的中文。",
+            context_enabled=False,
+        ),
     ).run_once()
 
     assert result.final_text == "final:raw"
@@ -99,15 +105,19 @@ async def test_pipeline_error_preserves_raw_transcript(tmp_path: Path) -> None:
 
     try:
         await DictationPipeline(
-            recorder=FakeRecorder(audio),
-            asr=FakeASR(),
-            llm=FailingLLM(),
-            inserter=FakeInserter(),
-            app_provider=FakeAppProvider(),
-            context_store=ContextStore(scope="app"),
-            tray=FakeTray(),
-            style="polished",
-            prompt_instruction="整理为自然清楚的中文。",
+            dependencies=DictationDependencies(
+                recorder=FakeRecorder(audio),
+                asr=FakeASR(),
+                llm=FailingLLM(),
+                inserter=FakeInserter(),
+                app_provider=FakeAppProvider(),
+                context_store=ContextStore(scope="app"),
+                tray=FakeTray(),
+            ),
+            options=DictationOptions(
+                style="polished",
+                prompt_instruction="整理为自然清楚的中文。",
+            ),
         ).run_once()
     except DictationPipelineError as exc:
         assert exc.raw_text == "raw"

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import sqlite3
 from dataclasses import dataclass
-from datetime import datetime
 from pathlib import Path
 
 from asr_evo.core.context import DictationRecord
@@ -140,10 +139,3 @@ class HistoryStore:
             )
             conn.execute("create index if not exists idx_dictations_ended_at on dictations(ended_at)")
             conn.execute("create index if not exists idx_dictations_app on dictations(bundle_id)")
-
-
-def format_datetime(value: str) -> str:
-    try:
-        return datetime.fromisoformat(value).strftime("%Y-%m-%d %H:%M")
-    except ValueError:
-        return value

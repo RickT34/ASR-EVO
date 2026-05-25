@@ -17,6 +17,25 @@ class DictationResult:
     audio_seconds: float
 
 
+@dataclass(frozen=True)
+class DictationDependencies:
+    recorder: Recorder
+    asr: ASRProvider
+    llm: LLMProvider
+    inserter: TextInserter
+    app_provider: FrontmostAppProvider
+    context_store: ContextStore
+    tray: TrayUI
+
+
+@dataclass(frozen=True)
+class DictationOptions:
+    style: str
+    prompt_instruction: str
+    context_enabled: bool = True
+    cleanup_audio: bool = True
+
+
 class DictationPipelineError(Exception):
     def __init__(
         self,
@@ -36,69 +55,51 @@ class DictationPipeline:
     def __init__(
         self,
         *,
-        recorder: Recorder,
-        asr: ASRProvider,
-        llm: LLMProvider,
-        inserter: TextInserter,
-        app_provider: FrontmostAppProvider,
-        context_store: ContextStore,
-        tray: TrayUI,
-        style: str,
-        prompt_instruction: str,
-        context_enabled: bool = True,
-        cleanup_audio: bool = True,
+        dependencies: DictationDependencies,
+        options: DictationOptions,
     ) -> None:
-        self.recorder = recorder
-        self.asr = asr
-        self.llm = llm
-        self.inserter = inserter
-        self.app_provider = app_provider
-        self.context_store = context_store
-        self.tray = tray
-        self.style = style
-        self.prompt_instruction = prompt_instruction
-        self.context_enabled = context_enabled
-        self.cleanup_audio = cleanup_audio
+        self.dependencies = dependencies
+        self.options = options
 
     async def run_once(self) -> DictationResult:
         started_at = datetime.now(UTC)
-        app_context = self.app_provider.current_app()
+        app_context = self.dependencies.app_provider.current_app()
         audio = None
         transcript_text = ""
 
         try:
-            self.tray.set_state(DictationState.RECORDING.value)
-            audio = await self.recorder.record_until_stopped()
+            self.dependencies.tray.set_state(DictationState.RECORDING.value)
+            audio = await self.dependencies.recorder.record_until_stopped()
 
-            self.tray.set_state(DictationState.TRANSCRIBING.value)
-            transcript = await self.asr.transcribe(audio)
+            self.dependencies.tray.set_state(DictationState.TRANSCRIBING.value)
+            transcript = await self.dependencies.asr.transcribe(audio)
             transcript_text = transcript.text
 
-            self.tray.set_state(DictationState.POLISHING.value)
+            self.dependencies.tray.set_state(DictationState.POLISHING.value)
             context = (
-                self.context_store.render_for_prompt(app_context=app_context)
-                if self.context_enabled
+                self.dependencies.context_store.render_for_prompt(app_context=app_context)
+                if self.options.context_enabled
                 else ""
             )
-            final_text = await self.llm.polish(
+            final_text = await self.dependencies.llm.polish(
                 transcript_text,
                 context,
-                self.prompt_instruction,
+                self.options.prompt_instruction,
             )
 
-            self.tray.set_state(DictationState.INSERTING.value)
-            await self.inserter.insert(final_text)
+            self.dependencies.tray.set_state(DictationState.INSERTING.value)
+            await self.dependencies.inserter.insert(final_text)
 
             record = DictationRecord.create(
                 started_at=started_at,
                 raw_text=transcript_text,
                 final_text=final_text,
-                style=self.style,
+                style=self.options.style,
                 app_context=app_context,
             )
-            if self.context_enabled:
-                self.context_store.add(record)
-            self.tray.set_state(DictationState.IDLE.value)
+            if self.options.context_enabled:
+                self.dependencies.context_store.add(record)
+            self.dependencies.tray.set_state(DictationState.IDLE.value)
             return DictationResult(
                 raw_text=transcript_text,
                 final_text=final_text,
@@ -111,7 +112,7 @@ class DictationPipeline:
                     started_at=started_at,
                     raw_text=transcript_text,
                     final_text="",
-                    style=self.style,
+                    style=self.options.style,
                     app_context=app_context,
                 )
                 raise DictationPipelineError(
@@ -122,6 +123,6 @@ class DictationPipeline:
                 ) from exc
             raise
         finally:
-            if self.cleanup_audio and audio is not None:
+            if self.options.cleanup_audio and audio is not None:
                 with contextlib.suppress(FileNotFoundError):
                     audio.path.unlink()

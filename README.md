@@ -118,7 +118,12 @@ app_styles = {}
 enabled = true
 ttl_seconds = 600
 max_items = 20
+
+[audio]
+input_device = ""
 ```
+
+`audio.input_device` 为空时跟随系统默认输入设备；也可以直接在托盘菜单的“输入来源”里切换，选择会写回 `config.toml`。
 
 如果想按住地球仪键听写、松开停止：
 

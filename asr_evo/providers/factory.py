@@ -7,7 +7,7 @@ from .openai_compat_llm import OpenAICompatibleLLMProvider
 
 
 def create_llm_provider(config: AppConfig) -> OpenAICompatibleLLMProvider:
-    api_key = config.llm_api_key()
+    api_key = config.api_key()
     if not api_key:
         raise RuntimeError(f"Missing API key in ${API_KEY_ENV}. Add it to .env.")
     return OpenAICompatibleLLMProvider(
@@ -18,7 +18,7 @@ def create_llm_provider(config: AppConfig) -> OpenAICompatibleLLMProvider:
 
 
 def create_asr_provider(config: AppConfig) -> AliyunASRProvider:
-    api_key = config.asr_api_key()
+    api_key = config.api_key()
     if not api_key:
         raise RuntimeError(f"Missing API key in ${API_KEY_ENV}. Add it to .env.")
     return AliyunASRProvider(

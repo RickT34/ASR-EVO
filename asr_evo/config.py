@@ -35,6 +35,10 @@ class ContextConfig(BaseModel):
     max_items: int = Field(default=20, ge=1)
 
 
+class AudioConfig(BaseModel):
+    input_device: str | int = ""
+
+
 class StatusConfig(BaseModel):
     idle_icon: str = "ASR"
     recording_icon: str = "REC ASR"
@@ -56,6 +60,7 @@ class AppConfig(BaseModel):
     llm: LLMConfig = LLMConfig()
     style: StyleConfig = StyleConfig()
     context: ContextConfig = ContextConfig()
+    audio: AudioConfig = AudioConfig()
     status: StatusConfig = StatusConfig()
 
     @classmethod
@@ -67,10 +72,7 @@ class AppConfig(BaseModel):
             data = tomllib.loads(config_path.read_text(encoding="utf-8"))
         return cls.model_validate(data)
 
-    def llm_api_key(self) -> str | None:
-        return os.getenv(API_KEY_ENV)
-
-    def asr_api_key(self) -> str | None:
+    def api_key(self) -> str | None:
         return os.getenv(API_KEY_ENV)
 
     def save(self, path: str | Path = "config.toml") -> None:
@@ -84,6 +86,7 @@ class AppConfig(BaseModel):
             "llm": self.llm.model_dump(),
             "style": self.style.model_dump(),
             "context": self.context.model_dump(),
+            "audio": self.audio.model_dump(),
             "status": self.status.model_dump(),
         }
         lines = []
@@ -129,7 +132,6 @@ CONTEXT_SCOPE = "app"
 INSERT_MODE = "pasteboard_restore"
 INSERT_FALLBACK = "unicode_events"
 INSERT_RESTORE_DELAY_MS = 300
-STORAGE_ENABLED = True
 STORAGE_DATABASE_PATH = "data/asr_evo.sqlite3"
 
 
@@ -152,6 +154,10 @@ CONFIG_COMMENTS: dict[str, list[str]] = {
     ],
     "context": [
         "短期上下文配置。开启后，最近听写记录会作为上下文发给 LLM，用于更连贯地润色。",
+    ],
+    "audio": [
+        "录音输入配置。input_device 为空表示跟随系统默认输入设备。",
+        "也可以填写 sounddevice 设备编号；在托盘菜单切换后会自动保存。",
     ],
     "status": [
         "状态栏图标和提示文字。icon 会直接显示在 macOS 状态栏中，建议保持简短。",

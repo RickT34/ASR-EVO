@@ -3,23 +3,12 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from threading import current_thread, main_thread
+from typing import Protocol
 
 from asr_evo.config import StatusConfig
 from asr_evo.core.errors import ErrorFeedback
 from asr_evo.postprocess.styles import StyleDefinition
 from asr_evo.storage.history import AppStats
-
-
-class ConsoleTrayUI:
-    """Small stand-in while the NSStatusItem runtime is being built."""
-
-    def set_state(self, state: str, detail: str = "") -> None:
-        suffix = f" {detail}" if detail else ""
-        print(f"[asr-evo] {state}{suffix}")
-
-    def set_error_feedback(self, feedback: ErrorFeedback | None) -> None:
-        if feedback is not None:
-            print(f"[asr-evo] {feedback.copy_text()}")
 
 
 class MacOSStatusTray:
@@ -34,6 +23,8 @@ class MacOSStatusTray:
         on_reveal_prompts: Callable[[], None],
         on_reload_config: Callable[[], None],
         on_open_config: Callable[[], None],
+        on_refresh_input_devices: Callable[[], None],
+        on_select_input_device: Callable[[str], None],
         on_clear_app_style: Callable[[], None],
         on_refresh_app_binding: Callable[[], None],
         on_refresh_stats: Callable[[], None],
@@ -59,6 +50,8 @@ class MacOSStatusTray:
         self.button.setTitle_("ASR")
         self.status_config = status_config
         self.on_select_style = on_select_style
+        self.on_refresh_input_devices = on_refresh_input_devices
+        self.on_select_input_device = on_select_input_device
         self.on_refresh_app_binding = on_refresh_app_binding
         self.on_refresh_stats = on_refresh_stats
         self.on_copy_history_raw = on_copy_history_raw
@@ -66,10 +59,13 @@ class MacOSStatusTray:
         self.on_copy_error = on_copy_error
         self.on_clear_error = on_clear_error
         self._style_targets: list[_MenuTargetItem] = []
+        self._input_device_targets: list[_MenuTargetItem] = []
         self._history_targets: list[_MenuTargetItem] = []
         self._error_targets: list[_MenuTargetItem] = []
         self._styles = styles
         self._selected_style_id = selected_style_id
+        self._input_devices: list[InputDeviceMenuItem] = []
+        self._selected_input_device_id = ""
         self._app_binding_title = "当前应用绑定：未检测"
         self._error_feedback: ErrorFeedback | None = None
 
@@ -110,6 +106,12 @@ class MacOSStatusTray:
         self.prompt_menu = NSMenu.alloc().initWithTitle_("润色风格与提示词")
         self.prompt_menu.setDelegate_(self)
         self.prompt_menu_item.setSubmenu_(self.prompt_menu)
+        self.input_device_menu_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+            "输入来源", None, ""
+        )
+        self.input_device_menu = NSMenu.alloc().initWithTitle_("输入来源")
+        self.input_device_menu.setDelegate_(self)
+        self.input_device_menu_item.setSubmenu_(self.input_device_menu)
         self.error_menu_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
             "当前错误", None, ""
         )
@@ -127,6 +129,7 @@ class MacOSStatusTray:
 
         self.menu.addItem_(self.hotkey_item)
         self.menu.addItem_(self.error_menu_item)
+        self.menu.addItem_(self.input_device_menu_item)
         self.menu.addItem_(self.prompt_menu_item)
         self.menu.addItem_(NSMenuItem.separatorItem())
         self.menu.addItem_(self.stats_menu_item)
@@ -140,10 +143,7 @@ class MacOSStatusTray:
         self.set_error_feedback(None)
 
     def set_state(self, state: str, detail: str = "") -> None:
-        if current_thread() is not main_thread():
-            from PyObjCTools import AppHelper
-
-            AppHelper.callAfter(self.set_state, state, detail)
+        if _call_on_main_thread(self.set_state, state, detail):
             return
         title_map = _status_icon_map(self.status_config)
         text_map = _status_text_map(self.status_config)
@@ -154,10 +154,7 @@ class MacOSStatusTray:
         self.button.setToolTip_(status_text)
 
     def set_error_feedback(self, feedback: ErrorFeedback | None) -> None:
-        if current_thread() is not main_thread():
-            from PyObjCTools import AppHelper
-
-            AppHelper.callAfter(self.set_error_feedback, feedback)
+        if _call_on_main_thread(self.set_error_feedback, feedback):
             return
         from AppKit import NSMenuItem
 
@@ -190,12 +187,11 @@ class MacOSStatusTray:
     def _refresh_menu_if_needed(self, menu) -> None:
         if menu in (self.menu, self.prompt_menu):
             self.on_refresh_app_binding()
+        if menu in (self.menu, self.input_device_menu):
+            self.on_refresh_input_devices()
 
     def set_styles(self, styles: list[StyleDefinition], selected_style_id: str) -> None:
-        if current_thread() is not main_thread():
-            from PyObjCTools import AppHelper
-
-            AppHelper.callAfter(self.set_styles, styles, selected_style_id)
+        if _call_on_main_thread(self.set_styles, styles, selected_style_id):
             return
         from AppKit import NSMenuItem
 
@@ -227,11 +223,37 @@ class MacOSStatusTray:
     def set_status_config(self, status_config: StatusConfig) -> None:
         self.status_config = status_config
 
-    def set_stats(self, *, totals: dict[str, int | float], app_stats: list[AppStats]) -> None:
-        if current_thread() is not main_thread():
-            from PyObjCTools import AppHelper
+    def set_input_devices(
+        self,
+        devices: list["InputDeviceMenuItem"],
+        selected_device_id: str,
+    ) -> None:
+        if _call_on_main_thread(self.set_input_devices, devices, selected_device_id):
+            return
+        from AppKit import NSMenuItem
 
-            AppHelper.callAfter(lambda: self.set_stats(totals=totals, app_stats=app_stats))
+        self._input_devices = devices
+        self._selected_input_device_id = selected_device_id
+        self._input_device_targets = []
+        self.input_device_menu.removeAllItems()
+        self.input_device_menu_item.setTitle_(
+            f"输入来源：{_selected_input_device_title(devices, selected_device_id)}"
+        )
+        if not devices:
+            item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_("未找到输入设备", None, "")
+            item.setEnabled_(False)
+            self.input_device_menu.addItem_(item)
+            return
+        _add_input_devices_to_menu(
+            menu=self.input_device_menu,
+            devices=devices,
+            selected_device_id=selected_device_id,
+            action=self.on_select_input_device,
+            targets=self._input_device_targets,
+        )
+
+    def set_stats(self, *, totals: dict[str, int | float], app_stats: list[AppStats]) -> None:
+        if _call_on_main_thread(self.set_stats, totals=totals, app_stats=app_stats):
             return
         from AppKit import NSMenuItem
 
@@ -259,10 +281,7 @@ class MacOSStatusTray:
             self.stats_menu.addItem_(item)
 
     def set_history_records(self, records: list[dict]) -> None:
-        if current_thread() is not main_thread():
-            from PyObjCTools import AppHelper
-
-            AppHelper.callAfter(lambda: self.set_history_records(records))
+        if _call_on_main_thread(self.set_history_records, records):
             return
         from AppKit import NSMenu, NSMenuItem
 
@@ -298,6 +317,16 @@ class MacOSStatusTray:
             self.history_menu.addItem_(item)
             self._history_targets.extend([raw, final])
 
+
+def _call_on_main_thread(callback: Callable, *args, **kwargs) -> bool:
+    if current_thread() is main_thread():
+        return False
+    from PyObjCTools import AppHelper
+
+    AppHelper.callAfter(callback, *args, **kwargs)
+    return True
+
+
 @dataclass
 class _StyleMenuNode:
     name: str
@@ -316,6 +345,12 @@ def _build_style_tree(styles: list[StyleDefinition]) -> _StyleMenuNode:
             )
         node.styles.append(style)
     return root
+
+
+class InputDeviceMenuItem(Protocol):
+    id: str
+    label: str
+    is_default: bool
 
 
 def _add_style_tree_to_menu(
@@ -368,6 +403,41 @@ def _add_style_item(
     target_item.item.setState_(1 if style.id == selected_style_id else 0)
     menu.addItem_(target_item.item)
     targets.append(target_item)
+
+
+def _add_input_devices_to_menu(
+    *,
+    menu,
+    devices: list[InputDeviceMenuItem],
+    selected_device_id: str,
+    action: Callable[[str], None],
+    targets: list["_MenuTargetItem"],
+) -> None:
+    from AppKit import NSMenuItem
+
+    for index, device in enumerate(devices):
+        target_item = _MenuTargetItem.create_with_arg(
+            title=device.label,
+            action=action,
+            arg=device.id,
+        )
+        target_item.item.setState_(1 if device.id == selected_device_id else 0)
+        menu.addItem_(target_item.item)
+        targets.append(target_item)
+        if device.is_default and index < len(devices) - 1:
+            menu.addItem_(NSMenuItem.separatorItem())
+
+
+def _selected_input_device_title(
+    devices: list[InputDeviceMenuItem],
+    selected_device_id: str,
+) -> str:
+    for device in devices:
+        if device.id == selected_device_id:
+            return _ellipsize(device.label, 24)
+    if selected_device_id:
+        return _ellipsize(f"设备 {selected_device_id}（不可用）", 24)
+    return "系统默认输入"
 
 
 class _MenuTargetItem:

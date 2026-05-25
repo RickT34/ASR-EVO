@@ -27,12 +27,6 @@ class Transcript:
     language: str | None = None
 
 
-@dataclass(frozen=True)
-class PolishedText:
-    text: str
-    style: str
-
-
 class Recorder(Protocol):
     async def record_until_stopped(self) -> AudioClip: ...
 
@@ -46,8 +40,6 @@ class LLMProvider(Protocol):
 
 
 class TextInserter(Protocol):
-    def can_insert(self) -> bool: ...
-
     async def insert(self, text: str) -> None: ...
 
 

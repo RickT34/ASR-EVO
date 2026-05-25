@@ -24,9 +24,6 @@ class MacOSTextInserter:
         self.fallback = fallback
         self.restore_delay_seconds = restore_delay_ms / 1000
 
-    def can_insert(self) -> bool:
-        return True
-
     async def insert(self, text: str) -> None:
         if self.mode == "pasteboard_restore":
             await asyncio.to_thread(self._insert_via_pasteboard_restore, text)
