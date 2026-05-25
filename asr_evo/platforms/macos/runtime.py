@@ -22,7 +22,7 @@ from asr_evo.config import (
     AppConfig,
 )
 from asr_evo.core.context import ContextStore
-from asr_evo.core.pipeline import DictationPipeline
+from asr_evo.core.pipeline import DictationPipeline, DictationPipelineError
 from asr_evo.core.state import DictationState
 from asr_evo.postprocess.styles import StyleRegistry
 from asr_evo.platforms.macos.frontmost import MacOSFrontmostAppProvider
@@ -80,7 +80,6 @@ class MacOSDictationRuntime:
             on_reveal_prompts=self.reveal_prompts_dir,
             on_reload_config=self.reload_config,
             on_open_config=self.open_config_file,
-            on_bind_style_to_app=self.bind_current_style_to_app,
             on_clear_app_style=self.clear_current_app_style,
             on_refresh_app_binding=self.update_app_binding_summary,
             on_refresh_stats=self.refresh_menu_summaries,
@@ -132,8 +131,8 @@ class MacOSDictationRuntime:
                 self.tray.set_state(DictationState.ERROR.value, f"style not found: {style_id}")
                 return
         self.current_style_id = style_id
+        self.bind_current_style_to_app(show_state=False)
         self.tray.set_styles(self.styles.all(), self.current_style_id)
-        self.update_prompt_preview()
         self.update_app_binding_summary()
         self.tray.set_state(self.state.state.value, f"style: {self.styles.get(style_id).label}")
 
@@ -142,7 +141,6 @@ class MacOSDictationRuntime:
         if not self.styles.has(self.current_style_id):
             self.current_style_id = self.styles.default_style_id()
         self.tray.set_styles(self.styles.all(), self.current_style_id)
-        self.update_prompt_preview()
         self.update_app_binding_summary()
         self.tray.set_state(self.state.state.value, "已重新加载提示词")
 
@@ -161,17 +159,19 @@ class MacOSDictationRuntime:
         self.apply_config(AppConfig.load(), persist=False)
         self.tray.set_state(self.state.state.value, "已重新加载配置")
 
-    def bind_current_style_to_app(self) -> None:
+    def bind_current_style_to_app(self, *, show_state: bool = True) -> None:
         app = self.app_provider.current_app()
         if not app.bundle_id:
-            self.tray.set_state(self.state.state.value, "未识别当前应用")
+            if show_state:
+                self.tray.set_state(self.state.state.value, "未识别当前应用")
             return
         config = self.config.model_copy(deep=True)
         config.style.app_styles[app.bundle_id] = self.current_style_id
         self.apply_config(config, persist=True)
         style = self.styles.get(self.current_style_id)
         self.update_app_binding_summary()
-        self.tray.set_state(self.state.state.value, f"{app.app_name or app.bundle_id} -> {style.label}")
+        if show_state:
+            self.tray.set_state(self.state.state.value, f"{app.app_name or app.bundle_id} -> {style.label}")
 
     def clear_current_app_style(self) -> None:
         app = self.app_provider.current_app()
@@ -198,7 +198,6 @@ class MacOSDictationRuntime:
         if self.current_style_id != style_id:
             self.current_style_id = style_id
             self.tray.set_styles(self.styles.all(), self.current_style_id)
-            self.update_prompt_preview()
             self.update_app_binding_summary()
 
     def copy_history_raw(self, record_id: str) -> None:
@@ -217,10 +216,6 @@ class MacOSDictationRuntime:
             return
         self._copy_to_pasteboard(str(record.get(field, "")))
         self.tray.set_state(self.state.state.value, detail)
-
-    def update_prompt_preview(self) -> None:
-        style = self.styles.get(self.current_style_id)
-        self.tray.set_prompt_preview(label=style.label, prompt=style.prompt)
 
     def update_app_binding_summary(self) -> None:
         app = self.app_provider.current_app()
@@ -253,7 +248,6 @@ class MacOSDictationRuntime:
                 config.style.mode if self.styles.has(config.style.mode) else self.styles.default_style_id()
             )
         self.tray.set_styles(self.styles.all(), self.current_style_id)
-        self.update_prompt_preview()
         self.update_app_binding_summary()
         self.tray.set_status_config(config.status)
         if (
@@ -279,13 +273,6 @@ class MacOSDictationRuntime:
         return hotkey
 
     def refresh_menu_summaries(self) -> None:
-        self.tray.set_settings_summary(
-            hotkey=self.config.hotkey.toggle,
-            hotkey_mode=self.config.hotkey.mode,
-            ttl_seconds=self.config.context.ttl_seconds,
-            max_items=self.config.context.max_items,
-            storage_enabled=STORAGE_ENABLED,
-        )
         if self.history_store is not None:
             self.tray.set_stats(
                 totals=self.history_store.totals(),
@@ -298,7 +285,6 @@ class MacOSDictationRuntime:
                 app_stats=[],
             )
             self.tray.set_history_records([])
-        self.update_prompt_preview()
         self.update_app_binding_summary()
 
     def quit(self) -> None:
@@ -338,6 +324,11 @@ class MacOSDictationRuntime:
             if self.history_store is not None:
                 self.history_store.add(result.record, audio_seconds=result.audio_seconds)
                 self.refresh_menu_summaries()
+        except DictationPipelineError as exc:
+            if self.history_store is not None and exc.record is not None:
+                self.history_store.add(exc.record, audio_seconds=exc.audio_seconds)
+                self.refresh_menu_summaries()
+            self.tray_proxy.set_state(DictationState.ERROR.value, str(exc))
         except Exception as exc:
             self.tray_proxy.set_state(DictationState.ERROR.value, str(exc))
         finally:

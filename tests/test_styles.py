@@ -22,18 +22,21 @@ def test_style_registry_loads_prompt_files(tmp_path: Path) -> None:
     assert "README" not in style_ids
 
 
-def test_style_registry_writes_default_prompt_files(tmp_path: Path) -> None:
+def test_style_registry_creates_empty_prompt_dir_without_default_files(tmp_path: Path) -> None:
     prompts = tmp_path / "prompts"
 
     registry = StyleRegistry(prompts_dir=prompts)
 
-    assert (prompts / "exact.txt").exists()
-    assert (prompts / "polished.txt").exists()
-    assert (prompts / "concise.txt").exists()
-    assert registry.get("polished").source == str(prompts / "polished.txt")
+    assert prompts.exists()
+    assert registry.all() == []
 
 
-def test_style_registry_falls_back_to_polished(tmp_path: Path) -> None:
+def test_style_registry_raises_when_no_prompt_files_exist(tmp_path: Path) -> None:
     registry = StyleRegistry(prompts_dir=tmp_path)
 
-    assert registry.get("missing").id == "polished"
+    try:
+        registry.get("missing")
+    except RuntimeError as exc:
+        assert "No prompt files found" in str(exc)
+    else:
+        raise AssertionError("expected missing prompt files to raise")

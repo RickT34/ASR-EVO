@@ -17,6 +17,21 @@ class DictationResult:
     audio_seconds: float
 
 
+class DictationPipelineError(Exception):
+    def __init__(
+        self,
+        message: str,
+        *,
+        raw_text: str = "",
+        record: DictationRecord | None = None,
+        audio_seconds: float = 0,
+    ) -> None:
+        super().__init__(message)
+        self.raw_text = raw_text
+        self.record = record
+        self.audio_seconds = audio_seconds
+
+
 class DictationPipeline:
     def __init__(
         self,
@@ -49,6 +64,7 @@ class DictationPipeline:
         started_at = datetime.now(UTC)
         app_context = self.app_provider.current_app()
         audio = None
+        transcript_text = ""
 
         try:
             self.tray.set_state(DictationState.RECORDING.value)
@@ -56,6 +72,7 @@ class DictationPipeline:
 
             self.tray.set_state(DictationState.TRANSCRIBING.value)
             transcript = await self.asr.transcribe(audio)
+            transcript_text = transcript.text
 
             self.tray.set_state(DictationState.POLISHING.value)
             context = (
@@ -64,7 +81,7 @@ class DictationPipeline:
                 else ""
             )
             final_text = await self.llm.polish(
-                transcript.text,
+                transcript_text,
                 context,
                 self.prompt_instruction,
             )
@@ -74,7 +91,7 @@ class DictationPipeline:
 
             record = DictationRecord.create(
                 started_at=started_at,
-                raw_text=transcript.text,
+                raw_text=transcript_text,
                 final_text=final_text,
                 style=self.style,
                 app_context=app_context,
@@ -83,11 +100,27 @@ class DictationPipeline:
                 self.context_store.add(record)
             self.tray.set_state(DictationState.IDLE.value)
             return DictationResult(
-                raw_text=transcript.text,
+                raw_text=transcript_text,
                 final_text=final_text,
                 record=record,
                 audio_seconds=audio.duration_seconds,
             )
+        except Exception as exc:
+            if transcript_text:
+                record = DictationRecord.create(
+                    started_at=started_at,
+                    raw_text=transcript_text,
+                    final_text="",
+                    style=self.style,
+                    app_context=app_context,
+                )
+                raise DictationPipelineError(
+                    str(exc),
+                    raw_text=transcript_text,
+                    record=record,
+                    audio_seconds=audio.duration_seconds if audio is not None else 0,
+                ) from exc
+            raise
         finally:
             if self.cleanup_audio and audio is not None:
                 with contextlib.suppress(FileNotFoundError):

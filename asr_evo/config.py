@@ -99,25 +99,6 @@ class AppConfig(BaseModel):
         return "\n".join(lines)
 
 
-def save_env_value(key: str, value: str, path: str | Path = ".env") -> None:
-    env_path = Path(path)
-    lines = []
-    found = False
-    if env_path.exists():
-        lines = env_path.read_text(encoding="utf-8").splitlines()
-    next_lines = []
-    for line in lines:
-        if line.startswith(f"{key}="):
-            next_lines.append(f"{key}={value}")
-            found = True
-        else:
-            next_lines.append(line)
-    if not found:
-        next_lines.append(f"{key}={value}")
-    env_path.write_text("\n".join(next_lines) + "\n", encoding="utf-8")
-    os.environ[key] = value
-
-
 def _toml_value(value) -> str:
     if isinstance(value, bool):
         return "true" if value else "false"

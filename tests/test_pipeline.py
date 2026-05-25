@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from asr_evo.core.context import ContextStore, DictationRecord
-from asr_evo.core.pipeline import DictationPipeline
+from asr_evo.core.pipeline import DictationPipeline, DictationPipelineError
 from asr_evo.core.ports import AppContext, AudioClip, Transcript
 
 
@@ -28,6 +28,11 @@ class FakeLLM:
     async def polish(self, raw_text: str, context: str, prompt_instruction: str) -> str:
         self.context = context
         return f"final:{raw_text}"
+
+
+class FailingLLM:
+    async def polish(self, raw_text: str, context: str, prompt_instruction: str) -> str:
+        raise RuntimeError("remote failed")
 
 
 class FakeInserter:
@@ -86,3 +91,30 @@ async def test_pipeline_disables_context_and_deletes_audio(tmp_path: Path) -> No
     assert llm.context == ""
     assert not audio.exists()
     assert len(store.recent(app_context=AppContext(bundle_id="com.example.App"))) == 1
+
+
+async def test_pipeline_error_preserves_raw_transcript(tmp_path: Path) -> None:
+    audio = tmp_path / "recording.wav"
+    audio.write_bytes(b"audio")
+
+    try:
+        await DictationPipeline(
+            recorder=FakeRecorder(audio),
+            asr=FakeASR(),
+            llm=FailingLLM(),
+            inserter=FakeInserter(),
+            app_provider=FakeAppProvider(),
+            context_store=ContextStore(scope="app"),
+            tray=FakeTray(),
+            style="polished",
+            prompt_instruction="整理为自然清楚的中文。",
+        ).run_once()
+    except DictationPipelineError as exc:
+        assert exc.raw_text == "raw"
+        assert exc.record is not None
+        assert exc.record.raw_text == "raw"
+        assert exc.record.final_text == ""
+    else:
+        raise AssertionError("expected pipeline error")
+
+    assert not audio.exists()
