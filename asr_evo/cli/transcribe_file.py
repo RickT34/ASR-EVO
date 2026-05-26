@@ -17,8 +17,23 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Transcribe and polish an existing audio file.")
     parser.add_argument("audio", type=Path)
     parser.add_argument("--config", default="config.toml")
+    parser.add_argument(
+        "--dump-remote-requests",
+        action="store_true",
+        help="Print sanitized remote API request payloads to stderr.",
+    )
+    parser.add_argument(
+        "--include-large-request-values",
+        action="store_true",
+        help="Include large request fields such as audio base64 in the debug dump.",
+    )
     args = parser.parse_args()
-    asyncio.run(_run(args.audio, AppConfig.load(args.config)))
+    config = AppConfig.load(args.config)
+    if args.dump_remote_requests:
+        config.debug.dump_remote_requests = True
+    if args.include_large_request_values:
+        config.debug.include_large_request_values = True
+    asyncio.run(_run(args.audio, config))
 
 
 async def _run(audio_path: Path, config: AppConfig) -> None:

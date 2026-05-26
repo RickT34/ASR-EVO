@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import tomllib
+from dataclasses import dataclass
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -33,6 +34,8 @@ class ContextConfig(BaseModel):
     enabled: bool = True
     ttl_seconds: int = Field(default=600, ge=1)
     max_items: int = Field(default=20, ge=1)
+    max_chars: int = Field(default=6000, ge=1)
+    scope: str = "app"
 
 
 class AudioConfig(BaseModel):
@@ -54,6 +57,12 @@ class StatusConfig(BaseModel):
     error_text: str = "错误"
 
 
+class DebugConfig(BaseModel):
+    dump_remote_requests: bool = False
+    include_large_request_values: bool = False
+    max_request_value_chars: int = Field(default=4000, ge=0)
+
+
 class AppConfig(BaseModel):
     hotkey: HotkeyConfig = HotkeyConfig()
     asr: ASRConfig = ASRConfig()
@@ -62,6 +71,7 @@ class AppConfig(BaseModel):
     context: ContextConfig = ContextConfig()
     audio: AudioConfig = AudioConfig()
     status: StatusConfig = StatusConfig()
+    debug: DebugConfig = DebugConfig()
 
     @classmethod
     def load(cls, path: str | Path = "config.toml") -> "AppConfig":
@@ -88,6 +98,7 @@ class AppConfig(BaseModel):
             "context": self.context.model_dump(),
             "audio": self.audio.model_dump(),
             "status": self.status.model_dump(),
+            "debug": self.debug.model_dump(),
         }
         lines = []
         for section, values in sections.items():
@@ -122,17 +133,37 @@ def _toml_value(value) -> str:
 
 
 API_KEY_ENV = "DASHSCOPE_API_KEY"
-ASR_LANGUAGE = "zh"
-ASR_ENABLE_ITN = True
-ASR_MAX_AUDIO_MB = 10
-AUDIO_SAMPLE_RATE = 16000
-AUDIO_CHANNELS = 1
-CONTEXT_MAX_CHARS = 6000
-CONTEXT_SCOPE = "app"
-INSERT_MODE = "pasteboard_restore"
-INSERT_FALLBACK = "unicode_events"
-INSERT_RESTORE_DELAY_MS = 300
-STORAGE_DATABASE_PATH = "data/asr_evo.sqlite3"
+
+
+@dataclass(frozen=True)
+class ProviderDefaults:
+    asr_language: str = "zh"
+    asr_enable_itn: bool = True
+    asr_max_audio_mb: int = 10
+
+
+@dataclass(frozen=True)
+class AudioDefaults:
+    sample_rate: int = 16000
+    channels: int = 1
+
+
+@dataclass(frozen=True)
+class InsertDefaults:
+    mode: str = "pasteboard_restore"
+    fallback: str = "unicode_events"
+    restore_delay_ms: int = 300
+
+
+@dataclass(frozen=True)
+class StorageDefaults:
+    database_path: str = "data/asr_evo.sqlite3"
+
+
+PROVIDER_DEFAULTS = ProviderDefaults()
+AUDIO_DEFAULTS = AudioDefaults()
+INSERT_DEFAULTS = InsertDefaults()
+STORAGE_DEFAULTS = StorageDefaults()
 
 
 CONFIG_COMMENTS: dict[str, list[str]] = {
@@ -162,6 +193,10 @@ CONFIG_COMMENTS: dict[str, list[str]] = {
     "status": [
         "状态栏图标和提示文字。icon 会直接显示在 macOS 状态栏中，建议保持简短。",
     ],
+    "debug": [
+        "调试配置。开启后会把发往远程 API 的请求快照打印到 stderr。",
+        "Authorization 会自动脱敏；音频 base64 默认只显示长度摘要。",
+    ],
 }
 
 
@@ -172,4 +207,10 @@ FIELD_COMMENTS: dict[tuple[str, str], list[str]] = {
     ],
     ("context", "ttl_seconds"): ["超过这个时间的短期上下文不会继续传给 LLM。"],
     ("context", "max_items"): ["最多传入多少条近期听写记录。"],
+    ("context", "max_chars"): ["最多传入多少个上下文字数。"],
+    ("context", "scope"): ["上下文范围：app 表示同一应用，window 表示同一窗口，time 表示仅按时间。"],
+    ("debug", "include_large_request_values"): [
+        "设为 true 会打印完整大字段，例如音频 base64；只建议临时排查时开启。"
+    ],
+    ("debug", "max_request_value_chars"): ["普通字符串超过这个长度会被截断。"],
 }

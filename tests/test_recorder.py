@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from asr_evo.platforms.macos.recorder import (
+from asr_evo.audio.recorder import (
     InputDevice,
     _normalize_device_id,
     _stream_device_arg,

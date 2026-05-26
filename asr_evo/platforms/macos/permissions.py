@@ -1,5 +1,12 @@
 from __future__ import annotations
 
+from asr_evo.core.errors import PermissionDeniedError
+
+
+MACOS_ACCESSIBILITY_SUGGESTION = (
+    "请到系统设置 -> 隐私与安全性 -> 辅助功能，为终端或 Python 解释器开启权限后重启。"
+)
+
 
 class MacOSPermissions:
     def accessibility_trusted(self, *, prompt: bool = False) -> bool:
@@ -19,3 +26,9 @@ class MacOSPermissions:
         except ImportError:
             return "unknown"
         return str(AVCaptureDevice.authorizationStatusForMediaType_(AVMediaTypeAudio))
+
+    def accessibility_error(self) -> PermissionDeniedError:
+        return PermissionDeniedError(
+            "当前进程没有控制键盘或插入文本所需的 macOS 辅助功能权限。",
+            suggestion=MACOS_ACCESSIBILITY_SUGGESTION,
+        )

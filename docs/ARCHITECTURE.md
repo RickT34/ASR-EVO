@@ -1,6 +1,6 @@
 # Architecture
 
-ASR-EVO 分成三层：核心流水线、服务供应商适配器、平台适配器。核心层不依赖 macOS，也不依赖具体 ASR/LLM provider；平台层负责快捷键、录音、文本插入、托盘菜单和权限。
+ASR-EVO 分成几层：核心流水线与桌面控制器、服务供应商适配器、音频适配器、UI presentation helper、平台适配器。核心层不依赖 macOS，也不依赖具体 ASR/LLM provider；平台层负责快捷键、文本插入、托盘菜单、权限和应用生命周期。
 
 ## Directory Layout
 
@@ -10,9 +10,14 @@ asr_evo/
   config.py                 # TOML config model and hardcoded internal defaults
   core/
     ports.py                # Protocol interfaces used by the core pipeline
+    controller.py           # desktop dictation controller wired through ports
     pipeline.py             # one dictation lifecycle: record -> ASR -> LLM -> insert
     context.py              # short-lived in-memory context
     state.py                # tray/runtime state enum
+  audio/
+    recorder.py             # sounddevice-based recorder adapter
+  ui/
+    menu.py                 # platform-neutral menu/status presentation helpers
   providers/
     aliyun_asr.py           # DashScope Qwen ASR adapter
     openai_compat_llm.py    # OpenAI-compatible chat completions adapter
@@ -26,7 +31,6 @@ asr_evo/
       runtime.py            # orchestrates macOS services and core pipeline
       tray.py               # NSStatusItem menu
       hotkey.py             # Quartz event tap
-      recorder.py           # sounddevice recording
       inserter.py           # pasteboard/accessibility/unicode insertion
       frontmost.py          # frontmost app detection
       permissions.py        # macOS permission checks
@@ -38,7 +42,8 @@ asr_evo/
 
 ```text
 hotkey
-  -> MacOSDictationRuntime.start_dictation()
+  -> MacOSDictationRuntime
+  -> DesktopDictationController.start_dictation()
   -> DictationPipeline.run_once()
      -> Recorder.record_until_stopped()
      -> ASRProvider.transcribe(audio)
@@ -72,13 +77,13 @@ app_styles = { "com.apple.mail" = "情景/邮件" }
 The macOS runtime owns long-lived platform services:
 
 - `MacOSHotkeyService`
-- `SoundDeviceRecorder`
 - `MacOSStatusTray`
+- `SoundDeviceRecorder`
 - provider HTTP clients
 - `ContextStore`
 - `HistoryStore`
 
-The AppKit main thread runs the tray and event tap. Async provider calls run on a dedicated asyncio loop thread. The runtime prevents overlapping dictation runs by switching state synchronously before scheduling the pipeline.
+The AppKit main thread runs the tray and event tap. Async provider calls run on a dedicated asyncio loop thread. `DesktopDictationController` prevents overlapping dictation runs by switching state synchronously before scheduling the pipeline.
 
 ## Platform Boundaries
 

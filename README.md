@@ -118,9 +118,16 @@ app_styles = {}
 enabled = true
 ttl_seconds = 600
 max_items = 20
+max_chars = 6000
+scope = "app"
 
 [audio]
 input_device = ""
+
+[debug]
+dump_remote_requests = false
+include_large_request_values = false
+max_request_value_chars = 4000
 ```
 
 `audio.input_device` 为空时跟随系统默认输入设备；也可以直接在托盘菜单的“输入来源”里切换，选择会写回 `config.toml`。
@@ -181,6 +188,30 @@ ASR-EVO 不把 API Key 写入配置文件，默认从 `.env` 的 `DASHSCOPE_API_
 - 默认插入方式会短暂使用系统剪贴板，并在短延迟后恢复原内容。
 
 `.env`、`config.toml` 和 `data/` 已被 `.gitignore` 排除。发布或提交代码前请确认没有把个人配置、API Key 或历史数据库加入 Git。
+
+## 调试远程请求
+
+如果需要看清楚发给 ASR/LLM 远程 API 的请求内容，可以临时开启调试快照：
+
+```toml
+[debug]
+dump_remote_requests = true
+```
+
+请求快照会打印到 `stderr`，包含 method、URL、header 和 JSON payload。`Authorization` 会自动显示为 `<redacted>`；音频 base64 默认只显示字节数和字符数，避免终端输出过长。
+
+也可以只在命令行测试时开启：
+
+```bash
+.venv/bin/asr-evo-transcribe /path/to/audio.wav --dump-remote-requests
+```
+
+确实需要查看完整大字段时，再临时打开：
+
+```toml
+[debug]
+include_large_request_values = true
+```
 
 ## 插入策略
 

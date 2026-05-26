@@ -3,6 +3,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 
+class PermissionDeniedError(RuntimeError):
+    def __init__(self, detail: str, *, suggestion: str = "") -> None:
+        super().__init__(detail)
+        self.detail = detail
+        self.suggestion = suggestion
+
+
 @dataclass(frozen=True)
 class ErrorFeedback:
     title: str
@@ -35,7 +42,11 @@ def feedback_from_exception(exc: Exception, *, raw_text_saved: bool = False) -> 
     detail = _compact_message(message)
     suggestion = "请稍后重试；如果连续失败，复制错误详情检查配置、网络和权限。"
 
-    if "missing api key" in lower_message or "dashscope_api_key" in lower_message:
+    if isinstance(exc, PermissionDeniedError):
+        title = "缺少系统权限"
+        detail = exc.detail
+        suggestion = exc.suggestion or "请按当前平台要求授予必要权限后重启应用。"
+    elif "missing api key" in lower_message or "dashscope_api_key" in lower_message:
         title = "缺少 API Key"
         detail = ".env 中没有读取到 DASHSCOPE_API_KEY。"
         suggestion = "请在 .env 添加 DASHSCOPE_API_KEY=... 后重启应用，或重新加载配置。"
@@ -61,8 +72,8 @@ def feedback_from_exception(exc: Exception, *, raw_text_saved: bool = False) -> 
         suggestion = "请稍后重试；如果持续出现，检查服务状态或切换可用模型。"
     elif "accessibility permission" in lower_message or "grant accessibility" in lower_message:
         title = "缺少辅助功能权限"
-        detail = "当前进程没有控制键盘或插入文本所需的 macOS 辅助功能权限。"
-        suggestion = "请到系统设置 -> 隐私与安全性 -> 辅助功能，为终端或 Python 解释器开启权限后重启。"
+        detail = "当前进程没有控制键盘或插入文本所需的系统权限。"
+        suggestion = "请按当前平台要求授予辅助功能或输入控制权限后重启。"
     elif "microphone" in lower_message or "inputstream" in lower_message or "portaudio" in lower_message:
         title = "录音设备不可用"
         detail = "无法从麦克风开始录音。"

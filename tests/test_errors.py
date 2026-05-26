@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from asr_evo.core.errors import ErrorFeedback, feedback_from_exception
-from asr_evo.platforms.macos.tray import _error_feedback_lines
+from asr_evo.ui.menu import error_feedback_lines
 
 
 def test_feedback_from_missing_api_key_suggests_env_fix() -> None:
@@ -32,7 +32,7 @@ def test_error_feedback_lines_include_saved_raw_text_marker() -> None:
         raw_text_saved=True,
     )
 
-    assert _error_feedback_lines(feedback) == [
+    assert error_feedback_lines(feedback) == [
         "原因：remote failed",
         "建议：请稍后重试",
         "原始转写已保存到历史记录",

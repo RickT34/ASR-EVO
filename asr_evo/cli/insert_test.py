@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 
-from asr_evo.config import INSERT_FALLBACK, INSERT_MODE, INSERT_RESTORE_DELAY_MS, AppConfig
+from asr_evo.config import INSERT_DEFAULTS, AppConfig
 from asr_evo.platforms.macos.inserter import MacOSTextInserter
 
 
@@ -19,13 +19,13 @@ def main() -> None:
     parser.add_argument("--fallback", choices=["unicode_events", "pasteboard_restore"], default=None)
     args = parser.parse_args()
     AppConfig.load(args.config)
-    mode = args.mode or INSERT_MODE
-    fallback = args.fallback or INSERT_FALLBACK
+    mode = args.mode or INSERT_DEFAULTS.mode
+    fallback = args.fallback or INSERT_DEFAULTS.fallback
     asyncio.run(
         MacOSTextInserter(
             mode=mode,
             fallback=fallback,
-            restore_delay_ms=INSERT_RESTORE_DELAY_MS,
+            restore_delay_ms=INSERT_DEFAULTS.restore_delay_ms,
         ).insert(args.text)
     )
 

@@ -8,6 +8,7 @@ import httpx
 
 from asr_evo.core.ports import AudioClip, Transcript
 from asr_evo.providers.http_retry import raise_provider_status, with_http_retries
+from asr_evo.providers.request_debug import RemoteRequestDebugOptions, dump_remote_request
 
 
 class AliyunASRProvider:
@@ -28,13 +29,16 @@ class AliyunASRProvider:
         enable_itn: bool = True,
         max_audio_mb: int = 10,
         timeout_seconds: float = 60,
+        request_debug: RemoteRequestDebugOptions | None = None,
     ) -> None:
         self.model = model
         self.language = language
         self.enable_itn = enable_itn
         self.max_audio_bytes = max_audio_mb * 1024 * 1024
+        self.base_url = base_url.rstrip("/")
+        self.request_debug = request_debug or RemoteRequestDebugOptions()
         self.client = httpx.AsyncClient(
-            base_url=base_url.rstrip("/"),
+            base_url=self.base_url,
             timeout=timeout_seconds,
             headers={
                 "Authorization": f"Bearer {api_key}",
@@ -67,6 +71,14 @@ class AliyunASRProvider:
             "asr_options": self._asr_options(),
             "stream": False,
         }
+        dump_remote_request(
+            provider="aliyun-asr",
+            method="POST",
+            url=f"{self.base_url}/chat/completions",
+            headers=dict(self.client.headers),
+            json_payload=payload,
+            options=self.request_debug,
+        )
         response = await with_http_retries(
             lambda: self.client.post("/chat/completions", json=payload)
         )

@@ -32,6 +32,10 @@ enabled = true
 ttl_seconds = 600
 # 最多传入多少条近期听写记录。
 max_items = 20
+# 最多传入多少个上下文字数。
+max_chars = 6000
+# 上下文范围：app 表示同一应用，window 表示同一窗口，time 表示仅按时间。
+scope = "app"
 
 # 录音输入配置。input_device 为空表示跟随系统默认输入设备。
 # 也可以填写 sounddevice 设备编号；在托盘菜单切换后会自动保存。
@@ -52,3 +56,12 @@ transcribing_text = "正在转写"
 polishing_text = "正在润色"
 inserting_text = "正在插入"
 error_text = "错误"
+
+# 调试配置。开启后会把发往远程 API 的请求快照打印到 stderr。
+# Authorization 会自动脱敏；音频 base64 默认只显示长度摘要。
+[debug]
+dump_remote_requests = false
+# 设为 true 会打印完整大字段，例如音频 base64；只建议临时排查时开启。
+include_large_request_values = false
+# 普通字符串超过这个长度会被截断。
+max_request_value_chars = 4000
