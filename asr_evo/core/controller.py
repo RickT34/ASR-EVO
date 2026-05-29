@@ -33,6 +33,7 @@ from asr_evo.core.ports import (
     PermissionChecker,
     StatusTray,
     TextInserter,
+    TextReviewer,
 )
 from asr_evo.core.state import DictationState
 from asr_evo.core.style_binding import StyleBindingService
@@ -53,6 +54,7 @@ class DesktopControllerDependencies:
     asr_provider: ASRProvider
     llm_provider: LLMProvider
     inserter: TextInserter
+    text_reviewer: TextReviewer
     app_provider: FrontmostAppProvider
     history_store: HistoryRepository
     context_store: ContextStore
@@ -83,6 +85,7 @@ class DesktopDictationController:
 
     def tray_actions(self) -> TrayMenuActions:
         return TrayMenuActions(
+            toggle_review=self.toggle_review,
             select_style=self.select_style,
             reveal_prompts=self.reveal_prompts_dir,
             reload_config=self.reload_config,
@@ -94,6 +97,7 @@ class DesktopDictationController:
             refresh_stats=self.refresh_menu_summaries,
             copy_history_raw=self.copy_history_raw,
             copy_history_final=self.copy_history_final,
+            copy_history_user_edit=self.copy_history_user_edit,
             copy_error=self.copy_current_error,
             clear_error=self.clear_error,
             quit=self.quit,
@@ -167,6 +171,15 @@ class DesktopDictationController:
         self.dependencies.file_opener.open_path(self.dependencies.config_path)
         self.dependencies.tray.set_state(self.state.state.value, "已打开配置文件")
 
+    def toggle_review(self) -> None:
+        enabled = not self.config.review.enabled
+        self.apply_config(
+            self.config.model_copy(update={"review": self.config.review.model_copy(update={"enabled": enabled})}),
+            persist=True,
+        )
+        detail = "已开启插入前确认" if enabled else "已关闭插入前确认"
+        self.dependencies.tray.set_state(self.state.state.value, detail)
+
     def reload_config(self) -> None:
         self.apply_config(self.dependencies.config_loader(), persist=False)
         self.dependencies.tray.set_state(self.state.state.value, "已重新加载配置")
@@ -225,6 +238,9 @@ class DesktopDictationController:
     def copy_history_final(self, record_id: str) -> None:
         self.copy_history_text(record_id, "final_text", "已复制润色结果")
 
+    def copy_history_user_edit(self, record_id: str) -> None:
+        self.copy_history_text(record_id, "user_edited_text", "已复制用户修订")
+
     def copy_history_text(self, record_id: str, field: str, detail: str) -> None:
         record = self.dependencies.history_store.get(record_id)
         if record is None:
@@ -265,6 +281,7 @@ class DesktopDictationController:
         self._sync_style_menu()
         self.update_app_binding_summary()
         self.dependencies.tray.set_status_config(config.status)
+        self.dependencies.tray.set_review_enabled(config.review.enabled)
         self.dependencies.recorder.set_input_device(config.audio.input_device)
         self.refresh_input_devices()
         if (
@@ -307,7 +324,6 @@ class DesktopDictationController:
                     recorder=self.dependencies.recorder,
                     asr=self.dependencies.asr_provider,
                     llm=self.dependencies.llm_provider,
-                    inserter=self.dependencies.inserter,
                     app_provider=self.dependencies.app_provider,
                     context_store=self.dependencies.context_store,
                     tray=_StateTrackingTray(self),
@@ -320,6 +336,13 @@ class DesktopDictationController:
                 ),
             )
             result = await pipeline.run_once()
+            user_text = await self._review_text(result.final_text)
+            if user_text is None:
+                _StateTrackingTray(self).set_state(DictationState.IDLE.value, "已取消插入")
+                return
+            _StateTrackingTray(self).set_state(DictationState.INSERTING.value)
+            result = result.with_user_text(user_text)
+            await self.dependencies.inserter.insert(user_text)
             self.dependencies.history_store.add(result.record, audio_seconds=result.audio_seconds)
             self.refresh_menu_summaries()
         except DictationPipelineError as exc:
@@ -356,6 +379,12 @@ class DesktopDictationController:
         self.state.current_error = feedback
         _StateTrackingTray(self).set_error_feedback(feedback)
         _StateTrackingTray(self).set_state(DictationState.ERROR.value, feedback.tooltip)
+
+    async def _review_text(self, text: str) -> str | None:
+        if not self.config.review.enabled:
+            return text
+        _StateTrackingTray(self).set_state(DictationState.REVIEWING.value)
+        return await self.dependencies.text_reviewer.review(text)
 
 
 class _StateTrackingTray:

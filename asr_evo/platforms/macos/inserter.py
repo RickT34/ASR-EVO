@@ -45,8 +45,8 @@ class MacOSTextInserter:
             return False
 
         system = AS.AXUIElementCreateSystemWide()
-        err, focused = AS.AXUIElementCopyAttributeValue(system, AS.kAXFocusedUIElementAttribute, None)
-        if err != AS.kAXErrorSuccess or focused is None:
+        focused = self._copy_attribute(AS, system, AS.kAXFocusedUIElementAttribute)
+        if focused is None:
             return False
 
         value = self._copy_attribute(AS, focused, AS.kAXValueAttribute)

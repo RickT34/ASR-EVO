@@ -24,8 +24,49 @@ async def test_controller_runs_pipeline_and_persists_history(tmp_path: Path) -> 
     assert len(records) == 1
     assert records[0]["raw_text"] == "raw"
     assert records[0]["final_text"] == "final:raw"
+    assert records[0]["user_edited_text"] == "final:raw"
     assert deps.tray.states[-1] == ("idle", "")
     assert deps.tray.history_records
+
+
+async def test_controller_reviews_user_text_before_insert(tmp_path: Path) -> None:
+    controller, deps = _make_controller(tmp_path)
+    deps.text_reviewer.result = "user edited"
+    deps.recorder.audio_path.write_bytes(b"audio")
+
+    await controller.run_pipeline_once()
+
+    records = deps.history_store.recent()
+    assert deps.text_reviewer.seen == ["final:raw"]
+    assert deps.inserter.text == "user edited"
+    assert records[0]["final_text"] == "final:raw"
+    assert records[0]["user_edited_text"] == "user edited"
+    assert deps.tray.states[-1] == ("idle", "")
+
+
+async def test_controller_cancels_insert_when_review_is_cancelled(tmp_path: Path) -> None:
+    controller, deps = _make_controller(tmp_path)
+    deps.text_reviewer.cancelled = True
+    deps.recorder.audio_path.write_bytes(b"audio")
+
+    await controller.run_pipeline_once()
+
+    assert deps.history_store.recent() == []
+    assert deps.inserter.text is None
+    assert ("idle", "已取消插入") in deps.tray.states
+
+
+async def test_controller_inserts_directly_when_review_disabled(tmp_path: Path) -> None:
+    controller, deps = _make_controller(tmp_path)
+    controller.config.review.enabled = False
+    deps.recorder.audio_path.write_bytes(b"audio")
+
+    await controller.run_pipeline_once()
+
+    records = deps.history_store.recent()
+    assert deps.text_reviewer.seen == []
+    assert deps.inserter.text == "final:raw"
+    assert records[0]["user_edited_text"] == "final:raw"
 
 
 def test_controller_selects_style_and_binds_current_app(tmp_path: Path) -> None:
@@ -35,7 +76,7 @@ def test_controller_selects_style_and_binds_current_app(tmp_path: Path) -> None:
 
     assert controller.config.style.app_styles["com.example.App"] == "情景/邮件"
     assert deps.tray.selected_style_id == "情景/邮件"
-    assert "style: 邮件.txt" in deps.tray.states[-1][1]
+    assert "style: 邮件" in deps.tray.states[-1][1]
 
 
 def test_controller_copies_history_through_clipboard_port(tmp_path: Path) -> None:
@@ -69,6 +110,17 @@ def test_controller_applies_config_and_rebuilds_hotkey(tmp_path: Path) -> None:
     assert (tmp_path / "config.toml").exists()
 
 
+def test_controller_toggles_review_and_persists_config(tmp_path: Path) -> None:
+    controller, deps = _make_controller(tmp_path)
+
+    controller.toggle_review()
+
+    assert controller.config.review.enabled is False
+    assert deps.tray.review_enabled is False
+    assert deps.tray.states[-1] == ("idle", "已关闭插入前确认")
+    assert AppConfig.load(tmp_path / "config.toml").review.enabled is False
+
+
 def test_controller_shows_error_when_permission_is_missing(tmp_path: Path) -> None:
     controller, deps = _make_controller(tmp_path, trusted=False)
 
@@ -85,10 +137,10 @@ def _make_controller(
 ) -> tuple[DesktopDictationController, "_Deps"]:
     prompts = tmp_path / "prompts"
     prompts.mkdir()
-    (prompts / "通用润色.txt").write_text("polish", encoding="utf-8")
+    (prompts / "通用润色.md").write_text("polish", encoding="utf-8")
     scene = prompts / "情景"
     scene.mkdir()
-    (scene / "邮件.txt").write_text("email", encoding="utf-8")
+    (scene / "邮件.md").write_text("email", encoding="utf-8")
     config = AppConfig()
     config.style.prompts_dir = str(prompts)
     deps = _Deps(
@@ -97,6 +149,7 @@ def _make_controller(
         asr_provider=FakeASR(),
         llm_provider=FakeLLM(),
         inserter=FakeInserter(),
+        text_reviewer=FakeTextReviewer(),
         app_provider=FakeAppProvider(),
         history_store=FakeHistoryStore(),
         context_store=ContextStore(scope="app"),
@@ -127,6 +180,7 @@ class _Deps:
     asr_provider: "FakeASR"
     llm_provider: "FakeLLM"
     inserter: "FakeInserter"
+    text_reviewer: "FakeTextReviewer"
     app_provider: "FakeAppProvider"
     history_store: "FakeHistoryStore"
     context_store: ContextStore
@@ -149,6 +203,7 @@ class FakeTray:
         self.stats = {}
         self.history_records = []
         self.hotkey_label = ""
+        self.review_enabled = True
 
     def set_state(self, state: str, detail: str = "") -> None:
         self.states.append((state, detail))
@@ -165,6 +220,9 @@ class FakeTray:
 
     def set_status_config(self, status_config) -> None:
         pass
+
+    def set_review_enabled(self, enabled: bool) -> None:
+        self.review_enabled = enabled
 
     def set_input_devices(self, devices: list[object], selected_device_id: str) -> None:
         self.input_devices = devices
@@ -218,8 +276,24 @@ class FakeLLM:
 
 
 class FakeInserter:
+    def __init__(self) -> None:
+        self.text = None
+
     async def insert(self, text: str) -> None:
-        pass
+        self.text = text
+
+
+class FakeTextReviewer:
+    def __init__(self) -> None:
+        self.result: str | None = None
+        self.cancelled = False
+        self.seen: list[str] = []
+
+    async def review(self, text: str) -> str | None:
+        self.seen.append(text)
+        if self.cancelled:
+            return None
+        return self.result if self.result is not None else text
 
 
 class FakeAppProvider:
@@ -241,6 +315,7 @@ class FakeHistoryStore:
                 "bundle_id": record.app_context.bundle_id,
                 "style": record.style,
                 "audio_seconds": audio_seconds,
+                "user_edited_text": record.user_edited_text,
             }
         )
 

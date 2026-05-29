@@ -66,6 +66,7 @@ class MacOSStatusTray:
         self._selected_style_id = selected_style_id
         self._input_devices: list[InputDeviceMenuItem] = []
         self._selected_input_device_id = ""
+        self._review_enabled = True
         self._app_binding_title = APP_BINDING_UNKNOWN_TITLE
         self._error_feedback: ErrorFeedback | None = None
 
@@ -89,6 +90,10 @@ class MacOSStatusTray:
         self.open_config_item = _MenuTargetItem.create(
             title=command_title(MenuCommand.OPEN_CONFIG),
             action=actions.open_config,
+        )
+        self.review_item = _MenuTargetItem.create(
+            title=command_title(MenuCommand.TOGGLE_REVIEW),
+            action=actions.toggle_review,
         )
         self.stats_menu_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
             STATS_MENU_TITLE, None, ""
@@ -131,6 +136,7 @@ class MacOSStatusTray:
         self.menu.addItem_(self.error_menu_item)
         self.menu.addItem_(self.input_device_menu_item)
         self.menu.addItem_(self.prompt_menu_item)
+        self.menu.addItem_(self.review_item.item)
         self.menu.addItem_(NSMenuItem.separatorItem())
         self.menu.addItem_(self.stats_menu_item)
         self.menu.addItem_(self.history_menu_item)
@@ -140,6 +146,7 @@ class MacOSStatusTray:
         self.menu.addItem_(self.quit_item.item)
         self.status_item.setMenu_(self.menu)
         self.set_styles(styles, selected_style_id)
+        self.set_review_enabled(True)
         self.set_error_feedback(None)
 
     def set_state(self, state: str, detail: str = "") -> None:
@@ -225,6 +232,12 @@ class MacOSStatusTray:
     def set_status_config(self, status_config: StatusConfig) -> None:
         self.status_config = status_config
 
+    def set_review_enabled(self, enabled: bool) -> None:
+        if _call_on_main_thread(self.set_review_enabled, enabled):
+            return
+        self._review_enabled = enabled
+        self.review_item.item.setState_(1 if enabled else 0)
+
     def set_hotkey_label(self, hotkey_label: str) -> None:
         if _call_on_main_thread(self.set_hotkey_label, hotkey_label):
             return
@@ -305,6 +318,8 @@ class MacOSStatusTray:
             final_preview = _readonly_item(record.final_preview)
             submenu.addItem_(raw_preview)
             submenu.addItem_(final_preview)
+            if record.user_edit_preview is not None:
+                submenu.addItem_(_readonly_item(record.user_edit_preview))
             submenu.addItem_(NSMenuItem.separatorItem())
             raw = _MenuTargetItem.create_with_arg(
                 title=command_title(MenuCommand.COPY_HISTORY_RAW),
@@ -318,9 +333,18 @@ class MacOSStatusTray:
             )
             submenu.addItem_(raw.item)
             submenu.addItem_(final.item)
+            targets = [raw, final]
+            if record.user_edit_preview is not None:
+                user_edit = _MenuTargetItem.create_with_arg(
+                    title=command_title(MenuCommand.COPY_HISTORY_USER_EDIT),
+                    action=self.actions.copy_history_user_edit,
+                    arg=record.id,
+                )
+                submenu.addItem_(user_edit.item)
+                targets.append(user_edit)
             item.setSubmenu_(submenu)
             self.history_menu.addItem_(item)
-            self._history_targets.extend([raw, final])
+            self._history_targets.extend(targets)
 
 
 def _call_on_main_thread(callback: Callable, *args, **kwargs) -> bool:

@@ -49,20 +49,22 @@ hotkey
      -> ASRProvider.transcribe(audio)
      -> ContextStore.render_for_prompt(app)
      -> LLMProvider.polish(raw_text, context, prompt_instruction)
-     -> TextInserter.insert(final_text)
-     -> ContextStore.add(record)
+     -> TextReviewer.review(final_text) when enabled
+     -> TextInserter.insert(user_text)
      -> HistoryStore.add(record)
 ```
 
 `DictationPipeline` catches failures after ASR succeeds and wraps them in `DictationPipelineError` with the raw transcript attached. The runtime persists that partial record, so users do not lose text when LLM or insertion fails.
 
+When review is enabled, the controller asks `TextReviewer` to show the polished text in an editable confirmation box before insertion. Confirmed text is stored as `user_edited_text` and inserted. If review is disabled, `user_edited_text` is initialized with the LLM-polished text. Polishing context always renders `user_edited_text`, so the field means "the text the user ultimately accepted".
+
 ## Prompt Styles
 
-`StyleRegistry` recursively scans `prompts_dir` for non-empty `.txt` and `.md` files.
+`StyleRegistry` recursively scans `prompts_dir` for non-empty `.md` files.
 
 ```text
-prompts/通用润色.txt       -> id: 通用润色, category: ()
-prompts/情景/邮件.txt     -> id: 情景/邮件, category: ("情景",)
+prompts/通用润色.md        -> id: 通用润色, label: 通用润色, category: ()
+prompts/情景/邮件.md      -> id: 情景/邮件, label: 邮件, category: ("情景",)
 ```
 
 The tray renders `category` as nested submenus. Runtime stores selected styles by id, so app bindings remain UI-independent:
@@ -93,6 +95,7 @@ Core code talks to `Protocol`s in `core/ports.py`:
 - `ASRProvider`
 - `LLMProvider`
 - `TextInserter`
+- `TextReviewer`
 - `FrontmostAppProvider`
 - `TrayUI`
 
@@ -106,6 +109,7 @@ Future Windows/Linux support should implement these ports and keep the dictation
 - ASR/LLM model and base URL
 - prompt directory, default style, app bindings
 - context enabled/TTL/max items
+- review confirmation enabled
 - audio input device selection
 - status bar labels
 
@@ -120,7 +124,7 @@ Local files intentionally ignored by Git:
 - `data/`
 - `*.sqlite3`
 
-The app sends audio to the ASR provider and sends raw transcript/context/prompt instructions to the LLM provider. SQLite history stores raw and final text locally.
+The app sends audio to the ASR provider and sends raw transcript/context/prompt instructions to the LLM provider. SQLite history stores raw, final, and captured user-edited text locally.
 
 ## Release Checklist
 

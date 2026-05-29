@@ -22,22 +22,22 @@ def test_build_style_tree_groups_nested_prompt_categories() -> None:
         [
             StyleDefinition(
                 id="通用润色",
-                label="通用润色.txt",
+                label="通用润色",
                 prompt="prompt",
-                source="prompts/通用润色.txt",
+                source="prompts/通用润色.md",
             ),
             StyleDefinition(
                 id="写作/邮件",
-                label="邮件.txt",
+                label="邮件",
                 prompt="prompt",
-                source="prompts/写作/邮件.txt",
+                source="prompts/写作/邮件.md",
                 category=("写作",),
             ),
             StyleDefinition(
                 id="写作/正式/公文",
-                label="公文.txt",
+                label="公文",
                 prompt="prompt",
-                source="prompts/写作/正式/公文.txt",
+                source="prompts/写作/正式/公文.md",
                 category=("写作", "正式"),
             ),
         ]
@@ -79,14 +79,16 @@ def test_history_menu_records_format_titles_and_previews() -> None:
                 "bundle_id": "com.example.notes",
                 "raw_text": " raw   text ",
                 "final_text": " polished   text ",
+                "user_edited_text": " user   edit ",
             }
         ]
     )
 
     assert records[0].id == "abc"
-    assert records[0].title == "Notes: polished text"
+    assert records[0].title == "Notes: user edit"
     assert records[0].raw_preview == "原始：raw text"
     assert records[0].final_preview == "润色：polished text"
+    assert records[0].user_edit_preview == "修订：user edit"
 
 
 def test_status_presentation_uses_configured_icon_and_text() -> None:
@@ -95,10 +97,16 @@ def test_status_presentation_uses_configured_icon_and_text() -> None:
     assert status.title == "REC ASR"
     assert status.tooltip == "正在录音，再按快捷键停止：ready"
 
+    reviewing = status_presentation(StatusConfig(), "reviewing")
+    assert reviewing.title == "EDIT ASR"
+    assert reviewing.tooltip == "等待确认文本"
+
 
 def test_menu_command_titles_are_shared_for_platform_renderers() -> None:
+    assert command_title(MenuCommand.TOGGLE_REVIEW) == "插入前确认文本"
     assert command_title(MenuCommand.REVEAL_PROMPTS) == "打开提示词文件夹"
     assert command_title(MenuCommand.COPY_HISTORY_FINAL) == "复制润色结果"
+    assert command_title(MenuCommand.COPY_HISTORY_USER_EDIT) == "复制用户修订"
     assert hotkey_menu_title("ctrl+space") == "快捷键：ctrl+space"
 
 

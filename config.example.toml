@@ -15,9 +15,9 @@ base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 model = "qwen-plus"
 
-# 提示词风格配置。所有风格都来自 prompts_dir 目录中的 .txt/.md 文件。
-# 风格 id 是提示词文件名去掉扩展名，例如 通用润色.txt 对应 通用润色。
-# 子文件夹会显示为子菜单，例如 写作/邮件.txt 对应 写作/邮件。
+# 提示词风格配置。所有风格都来自 prompts_dir 目录中的 .md 文件。
+# 风格 id 是提示词文件名去掉扩展名，例如 通用润色.md 对应 通用润色。
+# 子文件夹会显示为子菜单，例如 写作/邮件.md 对应 写作/邮件。
 [style]
 mode = "通用润色"
 prompts_dir = "prompts"
@@ -37,6 +37,11 @@ max_chars = 6000
 # 上下文范围：app 表示同一应用，window 表示同一窗口，time 表示仅按时间。
 scope = "app"
 
+# 用户确认配置。开启后，润色结果会先显示在文本框中，
+# 确认后再记录用户最终文本并插入到当前光标处。
+[review]
+enabled = true
+
 # 录音输入配置。input_device 为空表示跟随系统默认输入设备。
 # 也可以填写 sounddevice 设备编号；在托盘菜单切换后会自动保存。
 [audio]
@@ -48,12 +53,14 @@ idle_icon = "ASR"
 recording_icon = "REC ASR"
 transcribing_icon = "... ASR"
 polishing_icon = "TXT ASR"
+reviewing_icon = "EDIT ASR"
 inserting_icon = "INS ASR"
 error_icon = "! ASR"
 idle_text = "空闲"
 recording_text = "正在录音，再按快捷键停止"
 transcribing_text = "正在转写"
 polishing_text = "正在润色"
+reviewing_text = "等待确认文本"
 inserting_text = "正在插入"
 error_text = "错误"
 

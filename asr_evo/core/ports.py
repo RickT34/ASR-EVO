@@ -15,6 +15,7 @@ class AppContext:
     bundle_id: str | None = None
     app_name: str | None = None
     window_title: str | None = None
+    process_id: int | None = None
 
 
 @dataclass(frozen=True)
@@ -58,6 +59,10 @@ class TextInserter(Protocol):
     async def insert(self, text: str) -> None: ...
 
 
+class TextReviewer(Protocol):
+    async def review(self, text: str) -> str | None: ...
+
+
 class FrontmostAppProvider(Protocol):
     def current_app(self) -> AppContext: ...
 
@@ -74,6 +79,8 @@ class StatusTray(TrayUI, Protocol):
     def set_app_binding_summary(self, title: str) -> None: ...
 
     def set_status_config(self, status_config: object) -> None: ...
+
+    def set_review_enabled(self, enabled: bool) -> None: ...
 
     def set_input_devices(self, devices: list[object], selected_device_id: str) -> None: ...
 

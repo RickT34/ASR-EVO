@@ -10,8 +10,9 @@ def make_record(text: str, ended_at: datetime, bundle_id: str = "com.apple.TextE
     return DictationRecord.create(
         started_at=ended_at - timedelta(seconds=2),
         ended_at=ended_at,
-        raw_text=text,
-        final_text=text,
+        raw_text=f"raw {text}",
+        final_text=f"ai {text}",
+        user_edited_text=text,
         style="polished",
         app_context=AppContext(bundle_id=bundle_id, app_name="TextEdit"),
     )
@@ -32,7 +33,7 @@ def test_context_filters_by_time_and_app() -> None:
         now=now,
     )
 
-    assert [record.final_text for record in recent] == ["same app"]
+    assert [record.user_edited_text for record in recent] == ["same app"]
 
 
 def test_context_scope_time_keeps_different_apps() -> None:
@@ -49,7 +50,7 @@ def test_context_scope_time_keeps_different_apps() -> None:
         now=now,
     )
 
-    assert [record.final_text for record in recent] == ["same app", "other app"]
+    assert [record.user_edited_text for record in recent] == ["same app", "other app"]
 
 
 def test_context_respects_char_budget_from_most_recent() -> None:
@@ -67,7 +68,7 @@ def test_context_respects_char_budget_from_most_recent() -> None:
         now=now,
     )
 
-    assert [record.final_text for record in recent] == ["2222", "3333"]
+    assert [record.user_edited_text for record in recent] == ["2222", "3333"]
 
 
 def test_context_renders_records_for_prompt() -> None:

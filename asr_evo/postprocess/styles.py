@@ -29,7 +29,7 @@ class StyleRegistry:
             style_id = _style_id_from_file(self.prompts_dir, prompt_file)
             styles[style_id] = StyleDefinition(
                 id=style_id,
-                label=prompt_file.name,
+                label=prompt_file.stem,
                 prompt=prompt,
                 source=str(prompt_file),
                 category=_style_category(self.prompts_dir, prompt_file),
@@ -63,7 +63,7 @@ class StyleRegistry:
             path
             for path in self.prompts_dir.rglob("*")
             if path.is_file()
-            and path.suffix.lower() in {".txt", ".md"}
+            and path.suffix.lower() == ".md"
             and path.stem.lower() != "readme"
             and not _has_hidden_part(path.relative_to(self.prompts_dir))
         ]

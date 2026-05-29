@@ -1,17 +1,17 @@
 from __future__ import annotations
 
 import contextlib
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 
 from .context import ContextStore, DictationRecord
 from .ports import (
+    AppContext,
     ASRProvider,
     FrontmostAppProvider,
     HistoryRepository,
     LLMProvider,
     Recorder,
-    TextInserter,
     TrayUI,
 )
 from .state import DictationState
@@ -23,6 +23,17 @@ class DictationResult:
     final_text: str
     record: DictationRecord
     audio_seconds: float
+    app_context: AppContext | None = None
+
+    def with_user_text(self, user_text: str) -> "DictationResult":
+        record = replace(self.record, user_edited_text=user_text)
+        return DictationResult(
+            raw_text=self.raw_text,
+            final_text=self.final_text,
+            record=record,
+            audio_seconds=self.audio_seconds,
+            app_context=self.app_context,
+        )
 
 
 @dataclass(frozen=True)
@@ -30,7 +41,6 @@ class DictationDependencies:
     recorder: Recorder
     asr: ASRProvider
     llm: LLMProvider
-    inserter: TextInserter
     app_provider: FrontmostAppProvider
     context_store: ContextStore
     tray: TrayUI
@@ -104,9 +114,6 @@ class DictationPipeline:
                 self.options.prompt_instruction,
             )
 
-            self.dependencies.tray.set_state(DictationState.INSERTING.value)
-            await self.dependencies.inserter.insert(final_text)
-
             record = DictationRecord.create(
                 started_at=started_at,
                 raw_text=transcript_text,
@@ -120,6 +127,7 @@ class DictationPipeline:
                 final_text=final_text,
                 record=record,
                 audio_seconds=audio.duration_seconds,
+                app_context=app_context,
             )
         except Exception as exc:
             if transcript_text:

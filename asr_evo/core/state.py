@@ -8,5 +8,6 @@ class DictationState(StrEnum):
     RECORDING = "recording"
     TRANSCRIBING = "transcribing"
     POLISHING = "polishing"
+    REVIEWING = "reviewing"
     INSERTING = "inserting"
     ERROR = "error"

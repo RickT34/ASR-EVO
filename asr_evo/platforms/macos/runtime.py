@@ -26,6 +26,7 @@ from asr_evo.platforms.macos.permissions import MacOSPermissions
 from asr_evo.platforms.macos.tray import MacOSStatusTray
 from asr_evo.providers.factory import create_asr_provider, create_llm_provider
 from asr_evo.storage.history import HistoryStore
+from asr_evo.ui.text_review import TkTextReviewer
 
 
 class MacOSDictationRuntime:
@@ -50,6 +51,7 @@ class MacOSDictationRuntime:
                 fallback=INSERT_DEFAULTS.fallback,
                 restore_delay_ms=INSERT_DEFAULTS.restore_delay_ms,
             ),
+            text_reviewer=TkTextReviewer(),
             app_provider=MacOSFrontmostAppProvider(),
             history_store=HistoryStore(STORAGE_DEFAULTS.database_path),
             context_store=ContextStore(
@@ -77,6 +79,7 @@ class MacOSDictationRuntime:
             actions=self.controller.tray_actions(),
         )
         tray.bind(self.tray)
+        self.tray.set_review_enabled(config.review.enabled)
         self.controller.initialize_tray()
 
     def run(self) -> None:
@@ -143,6 +146,9 @@ class _UnboundStatusTray(StatusTray):
     def set_status_config(self, status_config: object) -> None:
         self._bound().set_status_config(status_config)
 
+    def set_review_enabled(self, enabled: bool) -> None:
+        self._bound().set_review_enabled(enabled)
+
     def set_input_devices(self, devices: list[object], selected_device_id: str) -> None:
         self._bound().set_input_devices(devices, selected_device_id)
 
@@ -159,3 +165,4 @@ class _UnboundStatusTray(StatusTray):
         if self._tray is None:
             raise RuntimeError("status tray has not been bound")
         return self._tray
+

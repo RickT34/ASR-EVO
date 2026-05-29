@@ -17,4 +17,5 @@ class MacOSFrontmostAppProvider:
             bundle_id=str(app.bundleIdentifier() or ""),
             app_name=str(app.localizedName() or ""),
             window_title=None,
+            process_id=int(app.processIdentifier()),
         )

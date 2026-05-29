@@ -38,6 +38,10 @@ class ContextConfig(BaseModel):
     scope: str = "app"
 
 
+class ReviewConfig(BaseModel):
+    enabled: bool = True
+
+
 class AudioConfig(BaseModel):
     input_device: str | int = ""
 
@@ -48,12 +52,14 @@ class StatusConfig(BaseModel):
     transcribing_icon: str = "... ASR"
     polishing_icon: str = "TXT ASR"
     inserting_icon: str = "INS ASR"
+    reviewing_icon: str = "EDIT ASR"
     error_icon: str = "! ASR"
     idle_text: str = "空闲"
     recording_text: str = "正在录音，再按快捷键停止"
     transcribing_text: str = "正在转写"
     polishing_text: str = "正在润色"
     inserting_text: str = "正在插入"
+    reviewing_text: str = "等待确认文本"
     error_text: str = "错误"
 
 
@@ -69,6 +75,7 @@ class AppConfig(BaseModel):
     llm: LLMConfig = LLMConfig()
     style: StyleConfig = StyleConfig()
     context: ContextConfig = ContextConfig()
+    review: ReviewConfig = ReviewConfig()
     audio: AudioConfig = AudioConfig()
     status: StatusConfig = StatusConfig()
     debug: DebugConfig = DebugConfig()
@@ -96,6 +103,7 @@ class AppConfig(BaseModel):
             "llm": self.llm.model_dump(),
             "style": self.style.model_dump(),
             "context": self.context.model_dump(),
+            "review": self.review.model_dump(),
             "audio": self.audio.model_dump(),
             "status": self.status.model_dump(),
             "debug": self.debug.model_dump(),
@@ -179,12 +187,16 @@ CONFIG_COMMENTS: dict[str, list[str]] = {
         "文本润色模型配置。API Key 从 .env 的 DASHSCOPE_API_KEY 读取。",
     ],
     "style": [
-        "提示词风格配置。所有风格都来自 prompts_dir 目录中的 .txt/.md 文件。",
-        "风格 id 是提示词文件名去掉扩展名，例如 通用润色.txt 对应 通用润色。",
-        "子文件夹会显示为子菜单，例如 写作/邮件.txt 对应 写作/邮件。",
+        "提示词风格配置。所有风格都来自 prompts_dir 目录中的 .md 文件。",
+        "风格 id 是提示词文件名去掉扩展名，例如 通用润色.md 对应 通用润色。",
+        "子文件夹会显示为子菜单，例如 写作/邮件.md 对应 写作/邮件。",
     ],
     "context": [
         "润色上下文配置。开启后，最近听写记录会作为上下文发给 LLM，用于更连贯地润色。",
+    ],
+    "review": [
+        "用户确认配置。开启后，润色结果会先显示在文本框中，",
+        "确认后再记录用户最终文本并插入到当前光标处。",
     ],
     "audio": [
         "录音输入配置。input_device 为空表示跟随系统默认输入设备。",
@@ -194,7 +206,7 @@ CONFIG_COMMENTS: dict[str, list[str]] = {
         "状态栏图标和提示文字。icon 会直接显示在 macOS 状态栏中，建议保持简短。",
     ],
     "debug": [
-        "调试配置。开启后会把发往远程 API 的请求快照打印到 stderr。",
+        "调试配置。开启后会把调试快照打印到 stderr。",
         "Authorization 会自动脱敏；音频 base64 默认只显示长度摘要。",
     ],
 }

@@ -15,6 +15,7 @@ class DictationRecord:
     ended_at: datetime
     raw_text: str
     final_text: str
+    user_edited_text: str
     style: str
     app_context: AppContext
 
@@ -27,6 +28,7 @@ class DictationRecord:
         final_text: str,
         style: str,
         app_context: AppContext,
+        user_edited_text: str | None = None,
         ended_at: datetime | None = None,
     ) -> "DictationRecord":
         return cls(
@@ -35,6 +37,7 @@ class DictationRecord:
             ended_at=ended_at or datetime.now(UTC),
             raw_text=raw_text,
             final_text=final_text,
+            user_edited_text=final_text if user_edited_text is None else user_edited_text,
             style=style,
             app_context=app_context,
         )
@@ -65,7 +68,7 @@ class ContextStore:
         recent_records = [
             record
             for record in records
-            if record.final_text.strip()
+            if record.user_edited_text.strip()
             and now - record.ended_at <= self.ttl
             and self._same_scope(record.app_context, app_context)
         ]
@@ -88,7 +91,7 @@ class ContextStore:
             return ""
         lines = ["最近同一上下文中已经插入的文本："]
         for index, record in enumerate(prompt_records, start=1):
-            lines.append(f"{index}. {record.final_text}")
+            lines.append(f"{index}. {record.user_edited_text}")
         return "\n".join(lines)
 
     def _same_scope(self, left: AppContext, right: AppContext) -> bool:
@@ -106,7 +109,7 @@ class ContextStore:
         selected: list[DictationRecord] = []
         total = 0
         for record in reversed(records):
-            text_len = len(record.final_text)
+            text_len = len(record.user_edited_text)
             if selected and total + text_len > self.max_chars:
                 break
             if text_len > self.max_chars:

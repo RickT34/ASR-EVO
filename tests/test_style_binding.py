@@ -20,7 +20,7 @@ def test_style_binding_syncs_app_specific_style(tmp_path: Path) -> None:
 
     assert sync.style_id == "情景/邮件"
     assert service.current_style_id == "情景/邮件"
-    assert sync.summary == "当前应用绑定：Mail -> 邮件.txt"
+    assert sync.summary == "当前应用绑定：Mail -> 邮件"
 
 
 def test_style_binding_falls_back_when_bound_style_is_missing(tmp_path: Path) -> None:
@@ -54,8 +54,8 @@ def test_style_binding_uses_last_seen_app_when_current_app_is_unknown(tmp_path: 
 def _write_prompts(tmp_path: Path) -> Path:
     prompts = tmp_path / "prompts"
     prompts.mkdir()
-    (prompts / "通用润色.txt").write_text("polish", encoding="utf-8")
+    (prompts / "通用润色.md").write_text("polish", encoding="utf-8")
     scene = prompts / "情景"
     scene.mkdir()
-    (scene / "邮件.txt").write_text("mail", encoding="utf-8")
+    (scene / "邮件.md").write_text("mail", encoding="utf-8")
     return prompts

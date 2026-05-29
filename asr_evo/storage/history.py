@@ -30,8 +30,9 @@ class HistoryStore:
                 """
                 insert into dictations (
                     id, started_at, ended_at, raw_text, final_text, style,
-                    bundle_id, app_name, window_title, audio_seconds, final_chars
-                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    bundle_id, app_name, window_title, audio_seconds, final_chars,
+                    user_edited_text, user_edited_chars
+                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     record.id,
@@ -45,6 +46,8 @@ class HistoryStore:
                     record.app_context.window_title or "",
                     audio_seconds,
                     len(record.final_text),
+                    record.user_edited_text,
+                    len(record.user_edited_text),
                 ),
             )
 
@@ -52,7 +55,9 @@ class HistoryStore:
         with self._connect() as conn:
             rows = conn.execute(
                 """
-                select id, ended_at, app_name, bundle_id, style, final_text, raw_text, final_chars
+                select
+                    id, ended_at, app_name, bundle_id, style, final_text, raw_text, final_chars,
+                    user_edited_text, user_edited_chars
                 from dictations
                 order by ended_at desc
                 limit ?
@@ -66,7 +71,7 @@ class HistoryStore:
             rows = conn.execute(
                 """
                 select
-                    id, started_at, ended_at, raw_text, final_text, style,
+                    id, started_at, ended_at, raw_text, final_text, user_edited_text, style,
                     bundle_id, app_name, window_title
                 from dictations
                 order by ended_at desc
@@ -81,7 +86,9 @@ class HistoryStore:
         with self._connect() as conn:
             row = conn.execute(
                 """
-                select id, ended_at, app_name, bundle_id, style, final_text, raw_text, final_chars
+                select
+                    id, ended_at, app_name, bundle_id, style, final_text, raw_text, final_chars,
+                    user_edited_text, user_edited_chars
                 from dictations
                 where id = ?
                 """,
@@ -97,7 +104,7 @@ class HistoryStore:
                     coalesce(nullif(app_name, ''), bundle_id, '未知应用') as app_name,
                     bundle_id,
                     count(*) as count,
-                    coalesce(sum(final_chars), 0) as total_chars,
+                    coalesce(sum(user_edited_chars), 0) as total_chars,
                     coalesce(sum(audio_seconds), 0) as total_audio_seconds
                 from dictations
                 group by bundle_id, app_name
@@ -123,7 +130,7 @@ class HistoryStore:
                 """
                 select
                     count(*) as count,
-                    coalesce(sum(final_chars), 0) as total_chars,
+                    coalesce(sum(user_edited_chars), 0) as total_chars,
                     coalesce(sum(audio_seconds), 0) as total_audio_seconds
                 from dictations
                 """
@@ -142,6 +149,7 @@ class HistoryStore:
             ended_at=datetime.fromisoformat(row["ended_at"]),
             raw_text=row["raw_text"],
             final_text=row["final_text"],
+            user_edited_text=row["user_edited_text"],
             style=row["style"],
             app_context=AppContext(
                 bundle_id=row["bundle_id"] or None,
@@ -166,9 +174,30 @@ class HistoryStore:
                     window_title text,
                     audio_seconds real not null default 0,
                     final_chars integer not null default 0,
+                    user_edited_text text,
+                    user_edited_chars integer not null default 0,
                     created_at text not null default current_timestamp
                 )
                 """
             )
+            self._ensure_column(conn, "user_edited_text", "text")
+            self._ensure_column(conn, "user_edited_chars", "integer not null default 0")
+            conn.execute(
+                """
+                update dictations
+                set user_edited_text = final_text,
+                    user_edited_chars = final_chars
+                where user_edited_text is null
+                   or length(trim(user_edited_text)) = 0
+                """
+            )
             conn.execute("create index if not exists idx_dictations_ended_at on dictations(ended_at)")
             conn.execute("create index if not exists idx_dictations_app on dictations(bundle_id)")
+
+    def _ensure_column(self, conn: sqlite3.Connection, name: str, definition: str) -> None:
+        columns = {
+            row["name"]
+            for row in conn.execute("pragma table_info(dictations)").fetchall()
+        }
+        if name not in columns:
+            conn.execute(f"alter table dictations add column {name} {definition}")

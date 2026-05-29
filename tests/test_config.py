@@ -15,6 +15,8 @@ def test_config_save_and_load_roundtrip(tmp_path: Path) -> None:
     config.style.app_styles["com.example.Editor"] = "会议纪要"
     config.audio.input_device = "3"
     config.status.idle_icon = "听写"
+    config.status.reviewing_text = "确认文字"
+    config.review.enabled = False
     config.debug.dump_remote_requests = True
     config.debug.max_request_value_chars = 99
 
@@ -28,5 +30,7 @@ def test_config_save_and_load_roundtrip(tmp_path: Path) -> None:
     assert loaded.style.app_styles["com.example.Editor"] == "会议纪要"
     assert loaded.audio.input_device == "3"
     assert loaded.status.idle_icon == "听写"
+    assert loaded.status.reviewing_text == "确认文字"
+    assert loaded.review.enabled is False
     assert loaded.debug.dump_remote_requests is True
     assert loaded.debug.max_request_value_chars == 99

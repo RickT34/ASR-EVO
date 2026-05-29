@@ -40,14 +40,6 @@ class FailingLLM:
         raise RuntimeError("remote failed")
 
 
-class FakeInserter:
-    def __init__(self) -> None:
-        self.text = None
-
-    async def insert(self, text: str) -> None:
-        self.text = text
-
-
 class FakeAppProvider:
     def current_app(self) -> AppContext:
         return AppContext(bundle_id="com.example.App")
@@ -91,6 +83,7 @@ async def test_pipeline_disables_context_and_deletes_audio(tmp_path: Path) -> No
         started_at=datetime.now(UTC),
         raw_text="old raw",
         final_text="old final",
+        user_edited_text="old user edit",
         style="polished",
         app_context=AppContext(bundle_id="com.example.App"),
     )
@@ -102,7 +95,6 @@ async def test_pipeline_disables_context_and_deletes_audio(tmp_path: Path) -> No
             recorder=FakeRecorder(audio),
             asr=FakeASR(),
             llm=llm,
-            inserter=FakeInserter(),
             app_provider=FakeAppProvider(),
             context_store=store,
             tray=FakeTray(),
@@ -128,6 +120,7 @@ async def test_pipeline_includes_stored_history_in_polish_context(tmp_path: Path
         started_at=datetime.now(UTC),
         raw_text="old raw",
         final_text="old final",
+        user_edited_text="old user edit",
         style="polished",
         app_context=AppContext(bundle_id="com.example.App"),
     )
@@ -137,7 +130,6 @@ async def test_pipeline_includes_stored_history_in_polish_context(tmp_path: Path
             recorder=FakeRecorder(audio),
             asr=FakeASR(),
             llm=llm,
-            inserter=FakeInserter(),
             app_provider=FakeAppProvider(),
             context_store=ContextStore(scope="app"),
             tray=FakeTray(),
@@ -149,7 +141,7 @@ async def test_pipeline_includes_stored_history_in_polish_context(tmp_path: Path
         ),
     ).run_once()
 
-    assert llm.context == "最近同一上下文中已经插入的文本：\n1. old final"
+    assert llm.context == "最近同一上下文中已经插入的文本：\n1. old user edit"
 
 
 async def test_pipeline_error_preserves_raw_transcript(tmp_path: Path) -> None:
@@ -162,7 +154,6 @@ async def test_pipeline_error_preserves_raw_transcript(tmp_path: Path) -> None:
                 recorder=FakeRecorder(audio),
                 asr=FakeASR(),
                 llm=FailingLLM(),
-                inserter=FakeInserter(),
                 app_provider=FakeAppProvider(),
                 context_store=ContextStore(scope="app"),
                 tray=FakeTray(),

@@ -28,6 +28,7 @@ class AppStatsMenuItem(Protocol):
 
 
 class MenuCommand(StrEnum):
+    TOGGLE_REVIEW = "toggle_review"
     REVEAL_PROMPTS = "reveal_prompts"
     CLEAR_APP_STYLE = "clear_app_style"
     RELOAD_CONFIG = "reload_config"
@@ -35,6 +36,7 @@ class MenuCommand(StrEnum):
     REFRESH_STATS = "refresh_stats"
     COPY_HISTORY_RAW = "copy_history_raw"
     COPY_HISTORY_FINAL = "copy_history_final"
+    COPY_HISTORY_USER_EDIT = "copy_history_user_edit"
     COPY_ERROR = "copy_error"
     CLEAR_ERROR = "clear_error"
     QUIT = "quit"
@@ -48,6 +50,7 @@ class MenuCommandSpec:
 
 @dataclass(frozen=True)
 class TrayMenuActions:
+    toggle_review: Callable[[], None]
     select_style: Callable[[str], None]
     reveal_prompts: Callable[[], None]
     reload_config: Callable[[], None]
@@ -59,6 +62,7 @@ class TrayMenuActions:
     refresh_stats: Callable[[], None]
     copy_history_raw: Callable[[str], None]
     copy_history_final: Callable[[str], None]
+    copy_history_user_edit: Callable[[str], None]
     copy_error: Callable[[], None]
     clear_error: Callable[[], None]
     quit: Callable[[], None]
@@ -77,6 +81,7 @@ class HistoryMenuRecord:
     title: str
     raw_preview: str
     final_preview: str
+    user_edit_preview: str | None
 
 
 @dataclass(frozen=True)
@@ -95,6 +100,10 @@ NO_INPUT_DEVICES_TITLE = "未找到输入设备"
 NO_HISTORY_RECORDS_TITLE = "暂无历史记录"
 
 MENU_COMMAND_SPECS = {
+    MenuCommand.TOGGLE_REVIEW: MenuCommandSpec(
+        command=MenuCommand.TOGGLE_REVIEW,
+        title="插入前确认文本",
+    ),
     MenuCommand.REVEAL_PROMPTS: MenuCommandSpec(
         command=MenuCommand.REVEAL_PROMPTS,
         title="打开提示词文件夹",
@@ -122,6 +131,10 @@ MENU_COMMAND_SPECS = {
     MenuCommand.COPY_HISTORY_FINAL: MenuCommandSpec(
         command=MenuCommand.COPY_HISTORY_FINAL,
         title="复制润色结果",
+    ),
+    MenuCommand.COPY_HISTORY_USER_EDIT: MenuCommandSpec(
+        command=MenuCommand.COPY_HISTORY_USER_EDIT,
+        title="复制用户修订",
     ),
     MenuCommand.COPY_ERROR: MenuCommandSpec(
         command=MenuCommand.COPY_ERROR,
@@ -210,13 +223,18 @@ def history_menu_records(records: list[dict], limit: int = 10) -> list[HistoryMe
             title=history_title(record),
             raw_preview=readonly_preview_title("原始", record.get("raw_text", "")),
             final_preview=readonly_preview_title("润色", record.get("final_text", "")),
+            user_edit_preview=(
+                readonly_preview_title("修订", record.get("user_edited_text", ""))
+                if record.get("user_edited_text")
+                else None
+            ),
         )
         for record in records[:limit]
     ]
 
 
 def history_title(record: dict) -> str:
-    text = " ".join(str(record.get("final_text", "")).split())
+    text = " ".join(str(record.get("user_edited_text") or record.get("final_text", "")).split())
     if not text and record.get("raw_text"):
         text = "转写失败待重试"
     text = ellipsize(text, 24)
@@ -255,6 +273,7 @@ def status_icon_map(config: StatusConfig) -> dict[str, str]:
         "recording": config.recording_icon,
         "transcribing": config.transcribing_icon,
         "polishing": config.polishing_icon,
+        "reviewing": config.reviewing_icon,
         "inserting": config.inserting_icon,
         "error": config.error_icon,
     }
@@ -266,6 +285,7 @@ def status_text_map(config: StatusConfig) -> dict[str, str]:
         "recording": config.recording_text,
         "transcribing": config.transcribing_text,
         "polishing": config.polishing_text,
+        "reviewing": config.reviewing_text,
         "inserting": config.inserting_text,
         "error": config.error_text,
     }
