@@ -11,6 +11,7 @@ from typing import Any
 
 from asr_evo.config import AppConfig
 from asr_evo.core.context import ContextStore
+from asr_evo.core.control import CONTROL_COMMANDS, ControlResult
 from asr_evo.core.errors import ErrorFeedback, PermissionDeniedError, feedback_from_exception
 from asr_evo.core.pipeline import (
     DictationDependencies,
@@ -27,8 +28,6 @@ from asr_evo.core.ports import (
     FileOpener,
     FrontmostAppProvider,
     HistoryRepository,
-    HotkeyFactory,
-    HotkeyService,
     LLMProvider,
     PermissionChecker,
     StatusTray,
@@ -38,7 +37,7 @@ from asr_evo.core.ports import (
 from asr_evo.core.state import DictationState
 from asr_evo.core.style_binding import StyleBindingService
 from asr_evo.postprocess.styles import StyleRegistry
-from asr_evo.ui.menu import TrayMenuActions, hotkey_menu_title
+from asr_evo.ui.menu import TrayMenuActions
 
 
 @dataclass
@@ -61,10 +60,10 @@ class DesktopControllerDependencies:
     clipboard: Clipboard
     file_opener: FileOpener
     permissions: PermissionChecker
-    hotkey_factory: HotkeyFactory
     lifecycle: AppLifecycle
     config_loader: Callable[[], AppConfig] = AppConfig.load
     config_path: Path = Path("config.toml")
+    on_config_applied: Callable[[AppConfig], None] | None = None
 
 
 class DesktopDictationController:
@@ -81,7 +80,6 @@ class DesktopDictationController:
         self.state = RuntimeState()
         self.styles = StyleRegistry(prompts_dir=config.style.prompts_dir)
         self.style_bindings = StyleBindingService(config=config, styles=self.styles)
-        self.hotkey = self._create_hotkey(config)
 
     def tray_actions(self) -> TrayMenuActions:
         return TrayMenuActions(
@@ -107,9 +105,6 @@ class DesktopDictationController:
         self._sync_style_menu()
         self.refresh_input_devices()
         self.refresh_menu_summaries()
-
-    def start_hotkey(self) -> None:
-        self.hotkey.start()
 
     def check_permissions(self) -> None:
         if not self.dependencies.permissions.accessibility_trusted(prompt=True):
@@ -142,6 +137,21 @@ class DesktopDictationController:
     def stop_dictation(self) -> None:
         if self.state.state == DictationState.RECORDING:
             self.dependencies.recorder.stop()
+
+    def handle_control_command(self, command: str) -> ControlResult:
+        if command not in CONTROL_COMMANDS:
+            return ControlResult(
+                ok=False,
+                state=self.state.state.value,
+                error=f"unsupported command: {command}",
+            )
+        if command == "start":
+            self.start_dictation()
+        elif command == "stop":
+            self.stop_dictation()
+        elif command == "toggle":
+            self.toggle_dictation()
+        return ControlResult(ok=True, state=self.state.state.value)
 
     def select_style(self, style_id: str) -> None:
         if not self.style_bindings.select(style_id):
@@ -268,7 +278,8 @@ class DesktopDictationController:
         self.dependencies.tray.set_app_binding_summary(self.style_bindings.summary_for(app))
 
     def apply_config(self, config: AppConfig, *, persist: bool = False) -> None:
-        old_config = self.config
+        if self.dependencies.on_config_applied is not None:
+            self.dependencies.on_config_applied(config)
         self.config = config
         if persist:
             config.save(self.dependencies.config_path)
@@ -284,16 +295,6 @@ class DesktopDictationController:
         self.dependencies.tray.set_review_enabled(config.review.enabled)
         self.dependencies.recorder.set_input_device(config.audio.input_device)
         self.refresh_input_devices()
-        if (
-            old_config.hotkey.toggle != config.hotkey.toggle
-            or old_config.hotkey.mode != config.hotkey.mode
-        ):
-            self.hotkey.stop()
-            self.hotkey = self._create_hotkey(config)
-            self.hotkey.start()
-            self.dependencies.tray.set_hotkey_label(
-                hotkey_menu_title(f"{config.hotkey.toggle} ({config.hotkey.mode})")
-            )
         self.refresh_menu_summaries()
 
     def refresh_menu_summaries(self) -> None:
@@ -305,7 +306,6 @@ class DesktopDictationController:
         self.update_app_binding_summary()
 
     def quit(self) -> None:
-        self.hotkey.stop()
         if self.state.state == DictationState.RECORDING:
             self.dependencies.recorder.stop()
         future = asyncio.run_coroutine_threadsafe(self.close_clients(), self.loop)
@@ -359,17 +359,6 @@ class DesktopDictationController:
     async def close_clients(self) -> None:
         await _maybe_aclose(self.dependencies.asr_provider)
         await _maybe_aclose(self.dependencies.llm_provider)
-
-    def _create_hotkey(self, config: AppConfig) -> HotkeyService:
-        hotkey = self.dependencies.hotkey_factory.create_hotkey(
-            config.hotkey.toggle,
-            mode=config.hotkey.mode,
-        )
-        if config.hotkey.mode == "hold":
-            hotkey.on_press_release(self.start_dictation, self.stop_dictation)
-        else:
-            hotkey.on_toggle(self.toggle_dictation)
-        return hotkey
 
     def _sync_style_menu(self) -> None:
         self.dependencies.tray.set_styles(self.styles.all(), self.style_bindings.current_style_id)

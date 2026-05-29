@@ -9,9 +9,8 @@ from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 
 
-class HotkeyConfig(BaseModel):
-    toggle: str = "cmd+shift+space"
-    mode: str = "toggle"
+class ControlConfig(BaseModel):
+    port: int = Field(default=8765, ge=1, le=65535)
 
 
 class ASRConfig(BaseModel):
@@ -55,7 +54,7 @@ class StatusConfig(BaseModel):
     reviewing_icon: str = "EDIT ASR"
     error_icon: str = "! ASR"
     idle_text: str = "空闲"
-    recording_text: str = "正在录音，再按快捷键停止"
+    recording_text: str = "正在录音"
     transcribing_text: str = "正在转写"
     polishing_text: str = "正在润色"
     inserting_text: str = "正在插入"
@@ -70,7 +69,7 @@ class DebugConfig(BaseModel):
 
 
 class AppConfig(BaseModel):
-    hotkey: HotkeyConfig = HotkeyConfig()
+    control: ControlConfig = ControlConfig()
     asr: ASRConfig = ASRConfig()
     llm: LLMConfig = LLMConfig()
     style: StyleConfig = StyleConfig()
@@ -98,7 +97,7 @@ class AppConfig(BaseModel):
 
     def to_toml(self) -> str:
         sections = {
-            "hotkey": self.hotkey.model_dump(),
+            "control": self.control.model_dump(),
             "asr": self.asr.model_dump(),
             "llm": self.llm.model_dump(),
             "style": self.style.model_dump(),
@@ -175,10 +174,9 @@ STORAGE_DEFAULTS = StorageDefaults()
 
 
 CONFIG_COMMENTS: dict[str, list[str]] = {
-    "hotkey": [
-        "全局快捷键。mode = \"toggle\" 表示按一次开始、再按一次停止；",
-        "mode = \"hold\" 表示按住录音、松开停止。地球仪键可写为 \"globe\" 或 \"fn\"。",
-        "修改后请在托盘点击“重新加载配置”。",
+    "control": [
+        "外部触发控制接口。默认只监听 127.0.0.1，供本机工具调用。",
+        "port 可改成其他本机端口；可用命令：asr-evo-control start | stop | toggle | status。",
     ],
     "asr": [
         "语音识别服务配置。API Key 从 .env 的 DASHSCOPE_API_KEY 读取。",

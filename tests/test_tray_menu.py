@@ -7,8 +7,8 @@ from asr_evo.ui.menu import (
     MenuCommand,
     build_style_tree,
     command_title,
+    control_menu_title,
     history_menu_records,
-    hotkey_menu_title,
     input_device_menu_title,
     selected_input_device_title,
     stats_menu_lines,
@@ -95,7 +95,7 @@ def test_status_presentation_uses_configured_icon_and_text() -> None:
     status = status_presentation(StatusConfig(), "recording", "ready")
 
     assert status.title == "REC ASR"
-    assert status.tooltip == "正在录音，再按快捷键停止：ready"
+    assert status.tooltip == "正在录音：ready"
 
     reviewing = status_presentation(StatusConfig(), "reviewing")
     assert reviewing.title == "EDIT ASR"
@@ -107,7 +107,7 @@ def test_menu_command_titles_are_shared_for_platform_renderers() -> None:
     assert command_title(MenuCommand.REVEAL_PROMPTS) == "打开提示词文件夹"
     assert command_title(MenuCommand.COPY_HISTORY_FINAL) == "复制润色结果"
     assert command_title(MenuCommand.COPY_HISTORY_USER_EDIT) == "复制用户修订"
-    assert hotkey_menu_title("ctrl+space") == "快捷键：ctrl+space"
+    assert control_menu_title("127.0.0.1:8765") == "外部控制：127.0.0.1:8765"
 
 
 @dataclass(frozen=True)

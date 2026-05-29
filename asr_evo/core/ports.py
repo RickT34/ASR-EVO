@@ -8,6 +8,7 @@ from asr_evo.core.errors import ErrorFeedback
 
 if TYPE_CHECKING:
     from asr_evo.core.context import DictationRecord
+    from asr_evo.postprocess.styles import StyleDefinition
 
 
 @dataclass(frozen=True)
@@ -31,6 +32,18 @@ class Transcript:
     language: str | None = None
 
 
+class InputDeviceSummary(Protocol):
+    id: str
+    label: str
+    is_default: bool
+
+
+class AppStatsSummary(Protocol):
+    app_name: str
+    count: int
+    total_chars: int
+
+
 class Recorder(Protocol):
     async def record_until_stopped(self) -> AudioClip: ...
 
@@ -42,7 +55,7 @@ class DesktopRecorder(Recorder, Protocol):
 
     def set_input_device(self, device_id: str | int | None) -> None: ...
 
-    def input_devices(self) -> list[object]: ...
+    def input_devices(self) -> list[InputDeviceSummary]: ...
 
     def current_input_label(self) -> str: ...
 
@@ -74,7 +87,7 @@ class TrayUI(Protocol):
 
 
 class StatusTray(TrayUI, Protocol):
-    def set_styles(self, styles: list[object], selected_style_id: str) -> None: ...
+    def set_styles(self, styles: list["StyleDefinition"], selected_style_id: str) -> None: ...
 
     def set_app_binding_summary(self, title: str) -> None: ...
 
@@ -82,14 +95,20 @@ class StatusTray(TrayUI, Protocol):
 
     def set_review_enabled(self, enabled: bool) -> None: ...
 
-    def set_input_devices(self, devices: list[object], selected_device_id: str) -> None: ...
+    def set_input_devices(
+        self,
+        devices: list[InputDeviceSummary],
+        selected_device_id: str,
+    ) -> None: ...
 
-    def set_stats(self, *, totals: dict[str, int | float], app_stats: list[object]) -> None: ...
+    def set_stats(
+        self,
+        *,
+        totals: dict[str, int | float],
+        app_stats: list[AppStatsSummary],
+    ) -> None: ...
 
     def set_history_records(self, records: list[dict]) -> None: ...
-
-    def set_hotkey_label(self, hotkey_label: str) -> None: ...
-
 
 class Clipboard(Protocol):
     def copy_text(self, text: str) -> None: ...
@@ -101,20 +120,6 @@ class FileOpener(Protocol):
 
 class PermissionChecker(Protocol):
     def accessibility_trusted(self, *, prompt: bool = False) -> bool: ...
-
-
-class HotkeyService(Protocol):
-    def on_press_release(self, on_press, on_release) -> None: ...
-
-    def on_toggle(self, callback) -> None: ...
-
-    def start(self) -> None: ...
-
-    def stop(self) -> None: ...
-
-
-class HotkeyFactory(Protocol):
-    def create_hotkey(self, key: str, *, mode: str) -> HotkeyService: ...
 
 
 class AppLifecycle(Protocol):
@@ -130,6 +135,6 @@ class HistoryRepository(Protocol):
 
     def get(self, record_id: str) -> dict | None: ...
 
-    def stats_by_app(self, limit: int = 50) -> list[object]: ...
+    def stats_by_app(self, limit: int = 50) -> list[AppStatsSummary]: ...
 
     def totals(self) -> dict[str, int | float]: ...

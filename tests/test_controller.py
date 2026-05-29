@@ -9,7 +9,7 @@ from asr_evo.config import AppConfig
 from asr_evo.core.context import ContextStore, DictationRecord
 from asr_evo.core.controller import DesktopControllerDependencies, DesktopDictationController
 from asr_evo.core.errors import PermissionDeniedError
-from asr_evo.core.ports import AppContext, AudioClip, Transcript
+from asr_evo.core.ports import AppContext, AppStatsSummary, AudioClip, InputDeviceSummary, Transcript
 from asr_evo.core.state import DictationState
 from asr_evo.postprocess.styles import StyleDefinition
 
@@ -96,18 +96,70 @@ def test_controller_copies_history_through_clipboard_port(tmp_path: Path) -> Non
     assert deps.tray.states[-1] == ("idle", "已复制润色结果")
 
 
-def test_controller_applies_config_and_rebuilds_hotkey(tmp_path: Path) -> None:
+def test_controller_applies_config_and_persists_it(tmp_path: Path) -> None:
     controller, deps = _make_controller(tmp_path)
-    deps.hotkey_factory.created[-1].started = True
     config = controller.config.model_copy(deep=True)
-    config.hotkey.toggle = "ctrl+alt+space"
+    config.control.port = 9876
 
     controller.apply_config(config, persist=True)
 
-    assert deps.hotkey_factory.created[0].stopped is True
-    assert deps.hotkey_factory.created[-1].started is True
-    assert deps.tray.hotkey_label == "快捷键：ctrl+alt+space (toggle)"
     assert (tmp_path / "config.toml").exists()
+    assert AppConfig.load(tmp_path / "config.toml").control.port == 9876
+    assert deps.applied_config is config
+
+
+def test_controller_applies_config_callback_after_runtime_state(tmp_path: Path) -> None:
+    controller, deps = _make_controller(tmp_path)
+    config = controller.config.model_copy(deep=True)
+    config.review.enabled = False
+
+    controller.apply_config(config)
+
+    assert deps.tray.review_enabled is False
+    assert deps.applied_config is config
+
+
+def test_controller_does_not_commit_config_when_runtime_rejects_it(tmp_path: Path) -> None:
+    controller, deps = _make_controller(tmp_path)
+    config = controller.config.model_copy(deep=True)
+    config.control.port = 9876
+
+    def reject_config(config: AppConfig) -> None:
+        raise OSError("port in use")
+
+    controller.dependencies = DesktopControllerDependencies(
+        **{
+            key: value
+            for key, value in deps.__dict__.items()
+            if key in DesktopControllerDependencies.__dataclass_fields__
+        }
+        | {"on_config_applied": reject_config}
+    )
+
+    try:
+        controller.apply_config(config, persist=True)
+    except OSError:
+        pass
+
+    assert controller.config.control.port != 9876
+    assert not (tmp_path / "config.toml").exists()
+
+
+def test_controller_handles_external_control_commands(tmp_path: Path) -> None:
+    controller, deps = _make_controller(tmp_path)
+    controller.start_dictation = lambda: setattr(controller.state, "state", DictationState.RECORDING)
+
+    started = controller.handle_control_command("start")
+
+    assert started.ok is True
+    assert started.state == "recording"
+    stopped = controller.handle_control_command("stop")
+    assert stopped.ok is True
+    assert stopped.state == "recording"
+    assert deps.recorder.stopped is True
+    unsupported = controller.handle_control_command("missing")
+    assert unsupported.ok is False
+    assert unsupported.error == "unsupported command: missing"
 
 
 def test_controller_toggles_review_and_persists_config(tmp_path: Path) -> None:
@@ -156,21 +208,35 @@ def _make_controller(
         clipboard=FakeClipboard(),
         file_opener=FakeFileOpener(),
         permissions=FakePermissions(trusted=trusted),
-        hotkey_factory=FakeHotkeyFactory(),
         lifecycle=FakeLifecycle(),
         config_path=tmp_path / "config.toml",
+        on_config_applied=lambda config: setattr(deps, "applied_config", config),
     )
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
+    loop = _controller_loop()
+    dependency_values = {
+        key: value
+        for key, value in deps.__dict__.items()
+        if key in DesktopControllerDependencies.__dataclass_fields__
+    }
     controller = DesktopDictationController(
         config=config,
-        dependencies=DesktopControllerDependencies(**deps.__dict__),
+        dependencies=DesktopControllerDependencies(**dependency_values),
         loop=loop,
     )
     controller.initialize_tray()
     return controller, deps
+
+
+def _controller_loop() -> asyncio.AbstractEventLoop | "_UnusedLoop":
+    try:
+        return asyncio.get_running_loop()
+    except RuntimeError:
+        return _UnusedLoop()
+
+
+class _UnusedLoop:
+    def call_soon_threadsafe(self, *args, **kwargs) -> None:
+        raise RuntimeError("test loop is not running")
 
 
 @dataclass
@@ -187,9 +253,10 @@ class _Deps:
     clipboard: "FakeClipboard"
     file_opener: "FakeFileOpener"
     permissions: "FakePermissions"
-    hotkey_factory: "FakeHotkeyFactory"
     lifecycle: "FakeLifecycle"
     config_path: Path
+    on_config_applied: object
+    applied_config: AppConfig | None = None
 
 
 class FakeTray:
@@ -202,7 +269,6 @@ class FakeTray:
         self.input_devices = []
         self.stats = {}
         self.history_records = []
-        self.hotkey_label = ""
         self.review_enabled = True
 
     def set_state(self, state: str, detail: str = "") -> None:
@@ -224,17 +290,23 @@ class FakeTray:
     def set_review_enabled(self, enabled: bool) -> None:
         self.review_enabled = enabled
 
-    def set_input_devices(self, devices: list[object], selected_device_id: str) -> None:
+    def set_input_devices(
+        self,
+        devices: list[InputDeviceSummary],
+        selected_device_id: str,
+    ) -> None:
         self.input_devices = devices
 
-    def set_stats(self, *, totals: dict[str, int | float], app_stats: list[object]) -> None:
+    def set_stats(
+        self,
+        *,
+        totals: dict[str, int | float],
+        app_stats: list[AppStatsSummary],
+    ) -> None:
         self.stats = totals
 
     def set_history_records(self, records: list[dict]) -> None:
         self.history_records = records
-
-    def set_hotkey_label(self, hotkey_label: str) -> None:
-        self.hotkey_label = hotkey_label
 
 
 class FakeRecorder:
@@ -252,7 +324,7 @@ class FakeRecorder:
     def set_input_device(self, device_id: str | int | None) -> None:
         self.input_device = "" if device_id is None else str(device_id)
 
-    def input_devices(self) -> list[object]:
+    def input_devices(self) -> list[InputDeviceSummary]:
         return []
 
     def current_input_label(self) -> str:
@@ -334,7 +406,7 @@ class FakeHistoryStore:
     def totals(self) -> dict[str, int | float]:
         return {"count": len(self.records), "total_chars": 0, "total_audio_seconds": 0}
 
-    def stats_by_app(self) -> list[object]:
+    def stats_by_app(self) -> list[AppStatsSummary]:
         return []
 
 
@@ -366,36 +438,6 @@ class FakePermissions:
             "test permission denied",
             suggestion="grant test permission",
         )
-
-
-class FakeHotkeyFactory:
-    def __init__(self) -> None:
-        self.created: list[FakeHotkey] = []
-
-    def create_hotkey(self, key: str, *, mode: str) -> "FakeHotkey":
-        hotkey = FakeHotkey(key=key, mode=mode)
-        self.created.append(hotkey)
-        return hotkey
-
-
-@dataclass
-class FakeHotkey:
-    key: str
-    mode: str
-    started: bool = False
-    stopped: bool = False
-
-    def on_press_release(self, on_press, on_release) -> None:
-        pass
-
-    def on_toggle(self, callback) -> None:
-        pass
-
-    def start(self) -> None:
-        self.started = True
-
-    def stop(self) -> None:
-        self.stopped = True
 
 
 class FakeLifecycle:

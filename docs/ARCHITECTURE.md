@@ -1,6 +1,6 @@
 # Architecture
 
-ASR-EVO 分成几层：核心流水线与桌面控制器、服务供应商适配器、音频适配器、UI presentation helper、平台适配器。核心层不依赖 macOS，也不依赖具体 ASR/LLM provider；平台层负责快捷键、文本插入、托盘菜单、权限和应用生命周期。
+ASR-EVO 分成几层：核心流水线与桌面控制器、服务供应商适配器、音频适配器、UI presentation helper、平台适配器。核心层不依赖 macOS，也不依赖具体 ASR/LLM provider；平台层负责本机控制入口、文本插入、托盘菜单、权限和应用生命周期。
 
 ## Directory Layout
 
@@ -11,6 +11,7 @@ asr_evo/
   core/
     ports.py                # Protocol interfaces used by the core pipeline
     controller.py           # desktop dictation controller wired through ports
+    control.py              # localhost control protocol for external triggers
     pipeline.py             # one dictation lifecycle: record -> ASR -> LLM -> insert
     context.py              # short-lived in-memory context
     state.py                # tray/runtime state enum
@@ -30,7 +31,6 @@ asr_evo/
     macos/
       runtime.py            # orchestrates macOS services and core pipeline
       tray.py               # NSStatusItem menu
-      hotkey.py             # Quartz event tap
       inserter.py           # pasteboard/accessibility/unicode insertion
       frontmost.py          # frontmost app detection
       permissions.py        # macOS permission checks
@@ -41,8 +41,9 @@ asr_evo/
 ## Core Flow
 
 ```text
-hotkey
-  -> MacOSDictationRuntime
+external trigger
+  -> asr-evo-control start|stop|toggle
+  -> DictationControlServer
   -> DesktopDictationController.start_dictation()
   -> DictationPipeline.run_once()
      -> Recorder.record_until_stopped()
@@ -78,14 +79,14 @@ app_styles = { "com.apple.mail" = "情景/邮件" }
 
 The macOS runtime owns long-lived platform services:
 
-- `MacOSHotkeyService`
+- `DictationControlServer`
 - `MacOSStatusTray`
 - `SoundDeviceRecorder`
 - provider HTTP clients
 - `ContextStore`
 - `HistoryStore`
 
-The AppKit main thread runs the tray and event tap. Async provider calls run on a dedicated asyncio loop thread. `DesktopDictationController` prevents overlapping dictation runs by switching state synchronously before scheduling the pipeline.
+The AppKit main thread runs the tray and platform UI work. The control server and async provider calls run on a dedicated asyncio loop thread; incoming control commands are dispatched back to the main thread before they touch frontmost-app or tray state. `DesktopDictationController` prevents overlapping dictation runs by switching state synchronously before scheduling the pipeline.
 
 ## Platform Boundaries
 
@@ -105,7 +106,7 @@ Future Windows/Linux support should implement these ports and keep the dictation
 
 `config.toml` exposes only user-facing knobs:
 
-- hotkey and mode
+- control port
 - ASR/LLM model and base URL
 - prompt directory, default style, app bindings
 - context enabled/TTL/max items

@@ -1,9 +1,7 @@
-# 全局快捷键。mode = "toggle" 表示按一次开始、再按一次停止；
-# mode = "hold" 表示按住录音、松开停止。地球仪键可写为 "globe" 或 "fn"。
-# 修改后请在托盘点击“重新加载配置”。
-[hotkey]
-toggle = "cmd+shift+space"
-mode = "toggle"
+# 外部触发控制接口。默认只监听 127.0.0.1，供本机工具调用。
+# port 可改成其他本机端口；可用命令：asr-evo-control start | stop | toggle | status。
+[control]
+port = 8765
 
 # 语音识别服务配置。API Key 从 .env 的 DASHSCOPE_API_KEY 读取。
 [asr]
@@ -25,10 +23,10 @@ prompts_dir = "prompts"
 # 示例：{ "com.apple.TextEdit" = "通用润色", "md.obsidian" = "会议纪要", "com.apple.mail" = "写作/邮件" }
 app_styles = {}
 
-# 短期上下文配置。开启后，最近听写记录会作为上下文发给 LLM，用于更连贯地润色。
+# 润色上下文配置。开启后，最近听写记录会作为上下文发给 LLM，用于更连贯地润色。
 [context]
 enabled = true
-# 超过这个时间的短期上下文不会继续传给 LLM。
+# 超过这个时间的历史记录不会继续作为上下文传给 LLM。
 ttl_seconds = 600
 # 最多传入多少条近期听写记录。
 max_items = 20
@@ -53,18 +51,18 @@ idle_icon = "ASR"
 recording_icon = "REC ASR"
 transcribing_icon = "... ASR"
 polishing_icon = "TXT ASR"
-reviewing_icon = "EDIT ASR"
 inserting_icon = "INS ASR"
+reviewing_icon = "EDIT ASR"
 error_icon = "! ASR"
 idle_text = "空闲"
-recording_text = "正在录音，再按快捷键停止"
+recording_text = "正在录音"
 transcribing_text = "正在转写"
 polishing_text = "正在润色"
 reviewing_text = "等待确认文本"
 inserting_text = "正在插入"
 error_text = "错误"
 
-# 调试配置。开启后会把发往远程 API 的请求快照打印到 stderr。
+# 调试配置。开启后会把调试快照打印到 stderr。
 # Authorization 会自动脱敏；音频 base64 默认只显示长度摘要。
 [debug]
 dump_remote_requests = false

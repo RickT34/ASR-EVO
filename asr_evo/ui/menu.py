@@ -155,8 +155,8 @@ def command_title(command: MenuCommand) -> str:
     return MENU_COMMAND_SPECS[command].title
 
 
-def hotkey_menu_title(hotkey_label: str) -> str:
-    return f"快捷键：{hotkey_label}"
+def control_menu_title(endpoint: str) -> str:
+    return f"外部控制：{endpoint}"
 
 
 def build_style_tree(styles: list[StyleMenuItem]) -> StyleMenuNode:

@@ -31,6 +31,7 @@ dev = [
 
 [project.scripts]
 asr-evo = "asr_evo.app:main"
+asr-evo-control = "asr_evo.cli.control:main"
 asr-evo-transcribe = "asr_evo.cli.transcribe_file:main"
 asr-evo-insert-test = "asr_evo.cli.insert_test:main"
 

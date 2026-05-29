@@ -20,9 +20,9 @@ from asr_evo.ui.menu import (
     TrayMenuActions,
     build_style_tree,
     command_title,
+    control_menu_title,
     error_feedback_lines,
     history_menu_records,
-    hotkey_menu_title,
     input_device_menu_title,
     should_separate_input_device,
     stats_menu_lines,
@@ -36,7 +36,7 @@ class MacOSStatusTray:
     def __init__(
         self,
         *,
-        hotkey_label: str,
+        control_label: str,
         status_config: StatusConfig,
         styles: list[StyleDefinition],
         selected_style_id: str,
@@ -72,8 +72,8 @@ class MacOSStatusTray:
 
         self.menu = NSMenu.alloc().init()
         self.menu.setDelegate_(self)
-        self.hotkey_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
-            hotkey_menu_title(hotkey_label), None, ""
+        self.control_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+            control_menu_title(control_label), None, ""
         )
         self.reveal_prompts_item = _MenuTargetItem.create(
             title=command_title(MenuCommand.REVEAL_PROMPTS),
@@ -132,7 +132,7 @@ class MacOSStatusTray:
             action=actions.quit,
         )
 
-        self.menu.addItem_(self.hotkey_item)
+        self.menu.addItem_(self.control_item)
         self.menu.addItem_(self.error_menu_item)
         self.menu.addItem_(self.input_device_menu_item)
         self.menu.addItem_(self.prompt_menu_item)
@@ -238,10 +238,10 @@ class MacOSStatusTray:
         self._review_enabled = enabled
         self.review_item.item.setState_(1 if enabled else 0)
 
-    def set_hotkey_label(self, hotkey_label: str) -> None:
-        if _call_on_main_thread(self.set_hotkey_label, hotkey_label):
+    def set_control_label(self, endpoint: str) -> None:
+        if _call_on_main_thread(self.set_control_label, endpoint):
             return
-        self.hotkey_item.setTitle_(hotkey_label)
+        self.control_item.setTitle_(control_menu_title(endpoint))
 
     def set_input_devices(
         self,

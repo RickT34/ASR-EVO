@@ -10,7 +10,7 @@ from asr_evo.core.pipeline import (
     DictationPipeline,
     DictationPipelineError,
 )
-from asr_evo.core.ports import AppContext, AudioClip, Transcript
+from asr_evo.core.ports import AppContext, AppStatsSummary, AudioClip, Transcript
 
 
 class FakeRecorder:
@@ -69,7 +69,7 @@ class FakeHistoryStore:
     def get(self, record_id: str) -> dict | None:
         return None
 
-    def stats_by_app(self, limit: int = 50) -> list[object]:
+    def stats_by_app(self, limit: int = 50) -> list[AppStatsSummary]:
         return []
 
     def totals(self) -> dict[str, int | float]:
