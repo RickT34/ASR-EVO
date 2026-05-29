@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import sqlite3
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 from asr_evo.core.context import DictationRecord
+from asr_evo.core.ports import AppContext
 
 
 @dataclass(frozen=True)
@@ -58,6 +60,22 @@ class HistoryStore:
                 (limit,),
             ).fetchall()
         return [dict(row) for row in rows]
+
+    def recent_records(self, limit: int = 100) -> list[DictationRecord]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                select
+                    id, started_at, ended_at, raw_text, final_text, style,
+                    bundle_id, app_name, window_title
+                from dictations
+                order by ended_at desc
+                limit ?
+                """,
+                (limit,),
+            ).fetchall()
+        records = [self._record_from_row(row) for row in rows]
+        return list(reversed(records))
 
     def get(self, record_id: str) -> dict | None:
         with self._connect() as conn:
@@ -116,6 +134,21 @@ class HistoryStore:
         conn = sqlite3.connect(self.path)
         conn.row_factory = sqlite3.Row
         return conn
+
+    def _record_from_row(self, row: sqlite3.Row) -> DictationRecord:
+        return DictationRecord(
+            id=row["id"],
+            started_at=datetime.fromisoformat(row["started_at"]),
+            ended_at=datetime.fromisoformat(row["ended_at"]),
+            raw_text=row["raw_text"],
+            final_text=row["final_text"],
+            style=row["style"],
+            app_context=AppContext(
+                bundle_id=row["bundle_id"] or None,
+                app_name=row["app_name"] or None,
+                window_title=row["window_title"] or None,
+            ),
+        )
 
     def _init_db(self) -> None:
         with self._connect() as conn:

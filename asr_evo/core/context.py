@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections import deque
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
@@ -53,42 +53,41 @@ class ContextStore:
         self.max_items = max_items
         self.max_chars = max_chars
         self.scope = scope
-        self._records: deque[DictationRecord] = deque()
-
-    def add(self, record: DictationRecord) -> None:
-        self._records.append(record)
-        self.prune(record.ended_at)
-
-    def prune(self, now: datetime | None = None) -> None:
-        now = now or datetime.now(UTC)
-        while self._records and now - self._records[0].ended_at > self.ttl:
-            self._records.popleft()
-        while len(self._records) > self.max_items:
-            self._records.popleft()
 
     def recent(
         self,
         *,
         app_context: AppContext,
+        records: Iterable[DictationRecord],
         now: datetime | None = None,
     ) -> list[DictationRecord]:
         now = now or datetime.now(UTC)
-        self.prune(now)
-        records = [r for r in self._records if now - r.ended_at <= self.ttl]
-        records = [r for r in records if self._same_scope(r.app_context, app_context)]
-        return self._trim_to_char_budget(records)
+        recent_records = [
+            record
+            for record in records
+            if record.final_text.strip()
+            and now - record.ended_at <= self.ttl
+            and self._same_scope(record.app_context, app_context)
+        ]
+        recent_records.sort(key=lambda record: record.ended_at)
+        return self._trim_to_char_budget(recent_records[-self.max_items :])
 
     def render_for_prompt(
         self,
         *,
         app_context: AppContext,
+        records: Iterable[DictationRecord],
         now: datetime | None = None,
     ) -> str:
-        records = self.recent(app_context=app_context, now=now)
-        if not records:
+        prompt_records = self.recent(
+            app_context=app_context,
+            records=records,
+            now=now,
+        )
+        if not prompt_records:
             return ""
         lines = ["最近同一上下文中已经插入的文本："]
-        for index, record in enumerate(records, start=1):
+        for index, record in enumerate(prompt_records, start=1):
             lines.append(f"{index}. {record.final_text}")
         return "\n".join(lines)
 

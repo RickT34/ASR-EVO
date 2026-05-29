@@ -23,8 +23,12 @@ def test_history_store_records_and_summarizes(tmp_path: Path) -> None:
     totals = store.totals()
     stats = store.stats_by_app()
     recent = store.recent()
+    recent_records = store.recent_records()
     assert totals["count"] == 1
     assert totals["total_chars"] == 4
     assert stats[0].app_name == "示例应用"
     assert stats[0].total_audio_seconds == 2.5
     assert recent[0]["final_text"] == "最终文本"
+    assert recent_records[0].id == record.id
+    assert recent_records[0].final_text == "最终文本"
+    assert recent_records[0].app_context.app_name == "示例应用"

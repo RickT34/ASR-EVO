@@ -20,11 +20,17 @@ def make_record(text: str, ended_at: datetime, bundle_id: str = "com.apple.TextE
 def test_context_filters_by_time_and_app() -> None:
     now = datetime(2026, 5, 24, 12, tzinfo=UTC)
     store = ContextStore(ttl_seconds=600, scope="app")
-    store.add(make_record("old text", now - timedelta(minutes=11)))
-    store.add(make_record("same app", now - timedelta(minutes=1)))
-    store.add(make_record("other app", now - timedelta(minutes=1), "com.apple.Notes"))
+    records = [
+        make_record("old text", now - timedelta(minutes=11)),
+        make_record("same app", now - timedelta(minutes=1)),
+        make_record("other app", now - timedelta(minutes=1), "com.apple.Notes"),
+    ]
 
-    recent = store.recent(app_context=AppContext(bundle_id="com.apple.TextEdit"), now=now)
+    recent = store.recent(
+        app_context=AppContext(bundle_id="com.apple.TextEdit"),
+        records=records,
+        now=now,
+    )
 
     assert [record.final_text for record in recent] == ["same app"]
 
@@ -32,10 +38,16 @@ def test_context_filters_by_time_and_app() -> None:
 def test_context_scope_time_keeps_different_apps() -> None:
     now = datetime(2026, 5, 24, 12, tzinfo=UTC)
     store = ContextStore(ttl_seconds=600, scope="time")
-    store.add(make_record("same app", now - timedelta(minutes=1)))
-    store.add(make_record("other app", now - timedelta(minutes=1), "com.apple.Notes"))
+    records = [
+        make_record("same app", now - timedelta(minutes=1)),
+        make_record("other app", now - timedelta(minutes=1), "com.apple.Notes"),
+    ]
 
-    recent = store.recent(app_context=AppContext(bundle_id="com.apple.TextEdit"), now=now)
+    recent = store.recent(
+        app_context=AppContext(bundle_id="com.apple.TextEdit"),
+        records=records,
+        now=now,
+    )
 
     assert [record.final_text for record in recent] == ["same app", "other app"]
 
@@ -43,10 +55,33 @@ def test_context_scope_time_keeps_different_apps() -> None:
 def test_context_respects_char_budget_from_most_recent() -> None:
     now = datetime(2026, 5, 24, 12, tzinfo=UTC)
     store = ContextStore(ttl_seconds=600, max_chars=8, scope="app")
-    store.add(make_record("1111", now - timedelta(minutes=3)))
-    store.add(make_record("2222", now - timedelta(minutes=2)))
-    store.add(make_record("3333", now - timedelta(minutes=1)))
+    records = [
+        make_record("1111", now - timedelta(minutes=3)),
+        make_record("2222", now - timedelta(minutes=2)),
+        make_record("3333", now - timedelta(minutes=1)),
+    ]
 
-    recent = store.recent(app_context=AppContext(bundle_id="com.apple.TextEdit"), now=now)
+    recent = store.recent(
+        app_context=AppContext(bundle_id="com.apple.TextEdit"),
+        records=records,
+        now=now,
+    )
 
     assert [record.final_text for record in recent] == ["2222", "3333"]
+
+
+def test_context_renders_records_for_prompt() -> None:
+    now = datetime(2026, 5, 24, 12, tzinfo=UTC)
+    store = ContextStore(ttl_seconds=600, scope="app")
+    records = [
+        make_record("first text", now - timedelta(minutes=2)),
+        make_record("second text", now - timedelta(minutes=1)),
+    ]
+
+    prompt = store.render_for_prompt(
+        app_context=AppContext(bundle_id="com.apple.TextEdit"),
+        records=records,
+        now=now,
+    )
+
+    assert prompt == "最近同一上下文中已经插入的文本：\n1. first text\n2. second text"

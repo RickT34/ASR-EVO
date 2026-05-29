@@ -184,7 +184,7 @@ CONFIG_COMMENTS: dict[str, list[str]] = {
         "子文件夹会显示为子菜单，例如 写作/邮件.txt 对应 写作/邮件。",
     ],
     "context": [
-        "短期上下文配置。开启后，最近听写记录会作为上下文发给 LLM，用于更连贯地润色。",
+        "润色上下文配置。开启后，最近听写记录会作为上下文发给 LLM，用于更连贯地润色。",
     ],
     "audio": [
         "录音输入配置。input_device 为空表示跟随系统默认输入设备。",
@@ -205,7 +205,7 @@ FIELD_COMMENTS: dict[tuple[str, str], list[str]] = {
         "按应用绑定风格，key 是 bundle id，value 是风格 id。",
         "示例：{ \"com.apple.TextEdit\" = \"通用润色\", \"md.obsidian\" = \"会议纪要\", \"com.apple.mail\" = \"写作/邮件\" }",
     ],
-    ("context", "ttl_seconds"): ["超过这个时间的短期上下文不会继续传给 LLM。"],
+    ("context", "ttl_seconds"): ["超过这个时间的历史记录不会继续作为上下文传给 LLM。"],
     ("context", "max_items"): ["最多传入多少条近期听写记录。"],
     ("context", "max_chars"): ["最多传入多少个上下文字数。"],
     ("context", "scope"): ["上下文范围：app 表示同一应用，window 表示同一窗口，time 表示仅按时间。"],

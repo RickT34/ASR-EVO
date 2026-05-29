@@ -61,19 +61,40 @@ class FakeTray:
         self.states.append(state)
 
 
+class FakeHistoryStore:
+    def __init__(self, records: list[DictationRecord]) -> None:
+        self.records = records
+
+    def add(self, record: DictationRecord, *, audio_seconds: float = 0) -> None:
+        self.records.append(record)
+
+    def recent(self, limit: int = 100) -> list[dict]:
+        return []
+
+    def recent_records(self, limit: int = 100) -> list[DictationRecord]:
+        return self.records[-limit:]
+
+    def get(self, record_id: str) -> dict | None:
+        return None
+
+    def stats_by_app(self, limit: int = 50) -> list[object]:
+        return []
+
+    def totals(self) -> dict[str, int | float]:
+        return {"count": 0, "total_chars": 0, "total_audio_seconds": 0}
+
+
 async def test_pipeline_disables_context_and_deletes_audio(tmp_path: Path) -> None:
     audio = tmp_path / "recording.wav"
     audio.write_bytes(b"audio")
-    store = ContextStore(scope="app")
-    store.add(
-        DictationRecord.create(
-            started_at=datetime.now(UTC),
-            raw_text="old raw",
-            final_text="old final",
-            style="polished",
-            app_context=AppContext(bundle_id="com.example.App"),
-        )
+    stored = DictationRecord.create(
+        started_at=datetime.now(UTC),
+        raw_text="old raw",
+        final_text="old final",
+        style="polished",
+        app_context=AppContext(bundle_id="com.example.App"),
     )
+    store = ContextStore(scope="app")
     llm = FakeLLM()
 
     result = await DictationPipeline(
@@ -85,6 +106,7 @@ async def test_pipeline_disables_context_and_deletes_audio(tmp_path: Path) -> No
             app_provider=FakeAppProvider(),
             context_store=store,
             tray=FakeTray(),
+            history_store=FakeHistoryStore([stored]),
         ),
         options=DictationOptions(
             style="polished",
@@ -96,7 +118,38 @@ async def test_pipeline_disables_context_and_deletes_audio(tmp_path: Path) -> No
     assert result.final_text == "final:raw"
     assert llm.context == ""
     assert not audio.exists()
-    assert len(store.recent(app_context=AppContext(bundle_id="com.example.App"))) == 1
+
+
+async def test_pipeline_includes_stored_history_in_polish_context(tmp_path: Path) -> None:
+    audio = tmp_path / "recording.wav"
+    audio.write_bytes(b"audio")
+    llm = FakeLLM()
+    stored = DictationRecord.create(
+        started_at=datetime.now(UTC),
+        raw_text="old raw",
+        final_text="old final",
+        style="polished",
+        app_context=AppContext(bundle_id="com.example.App"),
+    )
+
+    await DictationPipeline(
+        dependencies=DictationDependencies(
+            recorder=FakeRecorder(audio),
+            asr=FakeASR(),
+            llm=llm,
+            inserter=FakeInserter(),
+            app_provider=FakeAppProvider(),
+            context_store=ContextStore(scope="app"),
+            tray=FakeTray(),
+            history_store=FakeHistoryStore([stored]),
+        ),
+        options=DictationOptions(
+            style="polished",
+            prompt_instruction="整理为自然清楚的中文。",
+        ),
+    ).run_once()
+
+    assert llm.context == "最近同一上下文中已经插入的文本：\n1. old final"
 
 
 async def test_pipeline_error_preserves_raw_transcript(tmp_path: Path) -> None:

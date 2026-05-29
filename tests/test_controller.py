@@ -247,6 +247,9 @@ class FakeHistoryStore:
     def recent(self, limit: int = 100) -> list[dict]:
         return self.records[:limit]
 
+    def recent_records(self, limit: int = 100) -> list[DictationRecord]:
+        return []
+
     def get(self, record_id: str) -> dict | None:
         for record in self.records:
             if record["id"] == record_id:

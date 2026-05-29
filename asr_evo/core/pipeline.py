@@ -5,7 +5,15 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from .context import ContextStore, DictationRecord
-from .ports import ASRProvider, FrontmostAppProvider, LLMProvider, Recorder, TextInserter, TrayUI
+from .ports import (
+    ASRProvider,
+    FrontmostAppProvider,
+    HistoryRepository,
+    LLMProvider,
+    Recorder,
+    TextInserter,
+    TrayUI,
+)
 from .state import DictationState
 
 
@@ -26,6 +34,7 @@ class DictationDependencies:
     app_provider: FrontmostAppProvider
     context_store: ContextStore
     tray: TrayUI
+    history_store: HistoryRepository | None = None
 
 
 @dataclass(frozen=True)
@@ -76,11 +85,19 @@ class DictationPipeline:
             transcript_text = transcript.text
 
             self.dependencies.tray.set_state(DictationState.POLISHING.value)
-            context = (
-                self.dependencies.context_store.render_for_prompt(app_context=app_context)
-                if self.options.context_enabled
-                else ""
-            )
+            context = ""
+            if self.options.context_enabled:
+                history_records = (
+                    self.dependencies.history_store.recent_records(
+                        limit=self.dependencies.context_store.max_items * 5
+                    )
+                    if self.dependencies.history_store is not None
+                    else ()
+                )
+                context = self.dependencies.context_store.render_for_prompt(
+                    app_context=app_context,
+                    records=history_records,
+                )
             final_text = await self.dependencies.llm.polish(
                 transcript_text,
                 context,
@@ -97,8 +114,6 @@ class DictationPipeline:
                 style=self.options.style,
                 app_context=app_context,
             )
-            if self.options.context_enabled:
-                self.dependencies.context_store.add(record)
             self.dependencies.tray.set_state(DictationState.IDLE.value)
             return DictationResult(
                 raw_text=transcript_text,

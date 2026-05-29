@@ -2,9 +2,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from asr_evo.core.errors import ErrorFeedback
+
+if TYPE_CHECKING:
+    from asr_evo.core.context import DictationRecord
 
 
 @dataclass(frozen=True)
@@ -115,6 +118,8 @@ class HistoryRepository(Protocol):
     def add(self, record, *, audio_seconds: float = 0) -> None: ...
 
     def recent(self, limit: int = 100) -> list[dict]: ...
+
+    def recent_records(self, limit: int = 100) -> list["DictationRecord"]: ...
 
     def get(self, record_id: str) -> dict | None: ...
 

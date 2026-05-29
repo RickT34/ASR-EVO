@@ -311,6 +311,7 @@ class DesktopDictationController:
                     app_provider=self.dependencies.app_provider,
                     context_store=self.dependencies.context_store,
                     tray=_StateTrackingTray(self),
+                    history_store=self.dependencies.history_store,
                 ),
                 options=DictationOptions(
                     style=style.id,
