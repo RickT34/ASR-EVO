@@ -1,5 +1,6 @@
-# 外部触发控制接口。默认只监听 127.0.0.1，供本机工具调用。
-# port 可改成其他本机端口；可用命令：asr-evo-control start | stop | toggle | status。
+# 外部触发控制接口。固定只监听 127.0.0.1，供本机工具调用。
+# port 可改成其他本机端口；重新加载配置时会先尝试绑定新端口。
+# 可用命令：asr-evo-control start | stop | toggle | status。
 [control]
 port = 8765
 
