@@ -36,6 +36,7 @@ def test_history_store_records_and_summarizes(tmp_path: Path) -> None:
     assert recent_records[0].final_text == "最终文本"
     assert recent_records[0].user_edited_text == "最终文本"
     assert recent_records[0].app_context.app_name == "示例应用"
+    assert store.all_records()[0].id == record.id
 
 
 def test_history_store_backfills_user_edit_for_existing_rows(tmp_path: Path) -> None:

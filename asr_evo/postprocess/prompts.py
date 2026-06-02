@@ -1,15 +1,21 @@
 from __future__ import annotations
 
+
+def render_polish_input(*, raw_text: str, context: str) -> str:
+    user_parts = []
+    if context.strip():
+        user_parts.append(context.strip())
+    user_parts.append(f"当前语音识别文本：\n{raw_text.strip()}")
+    return "\n\n".join(user_parts)
+
+
 def build_polish_messages(
     *,
     raw_text: str,
     context: str,
     prompt_instruction: str,
 ) -> list[dict[str, str]]:
-    user_parts = []
-    if context.strip():
-        user_parts.append(context.strip())
-    user_parts.append(f"当前语音识别文本：\n{raw_text.strip()}")
+    polish_input = render_polish_input(raw_text=raw_text, context=context)
     return [
         {
             "role": "system",
@@ -20,6 +26,6 @@ def build_polish_messages(
         },
         {
             "role": "user",
-            "content": f"处理要求：{prompt_instruction.strip()}\n\n" + "\n\n".join(user_parts),
+            "content": f"处理要求：{prompt_instruction.strip()}\n\n{polish_input}",
         },
     ]

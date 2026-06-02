@@ -82,6 +82,19 @@ class HistoryStore:
         records = [self._record_from_row(row) for row in rows]
         return list(reversed(records))
 
+    def all_records(self) -> list[DictationRecord]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                select
+                    id, started_at, ended_at, raw_text, final_text, user_edited_text, style,
+                    bundle_id, app_name, window_title
+                from dictations
+                order by ended_at asc
+                """
+            ).fetchall()
+        return [self._record_from_row(row) for row in rows]
+
     def get(self, record_id: str) -> dict | None:
         with self._connect() as conn:
             row = conn.execute(

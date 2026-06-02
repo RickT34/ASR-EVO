@@ -15,7 +15,6 @@ from asr_evo.config import (
     AppConfig,
 )
 from asr_evo.core.control import ControlResult, DictationControlServer
-from asr_evo.core.context import ContextStore
 from asr_evo.core.controller import (
     DesktopControllerDependencies,
     DesktopDictationController,
@@ -63,12 +62,7 @@ class MacOSDictationRuntime:
             text_reviewer=TkTextReviewer(),
             app_provider=MacOSFrontmostAppProvider(),
             history_store=HistoryStore(STORAGE_DEFAULTS.database_path),
-            context_store=ContextStore(
-                ttl_seconds=config.context.ttl_seconds,
-                max_items=config.context.max_items,
-                max_chars=config.context.max_chars,
-                scope=config.context.scope,
-            ),
+            context_store=config.context.store(),
             clipboard=MacOSClipboard(),
             file_opener=MacOSFileOpener(),
             permissions=MacOSPermissions(),

@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+from typing import Any
+
 import httpx
 
 from asr_evo.postprocess.prompts import build_polish_messages
@@ -32,11 +35,22 @@ class OpenAICompatibleLLMProvider:
             context=context,
             prompt_instruction=prompt_instruction,
         )
+        return await self.complete_messages(messages, temperature=0.2)
+
+    async def complete_messages(
+        self,
+        messages: list[dict[str, str]],
+        *,
+        temperature: float = 0.2,
+        response_format: dict[str, str] | None = None,
+    ) -> str:
         payload = {
             "model": self.model,
             "messages": messages,
-            "temperature": 0.2,
+            "temperature": temperature,
         }
+        if response_format is not None:
+            payload["response_format"] = response_format
         dump_remote_request(
             provider="openai-compatible-llm",
             method="POST",
@@ -51,6 +65,22 @@ class OpenAICompatibleLLMProvider:
         raise_provider_status(response)
         data = response.json()
         return data["choices"][0]["message"]["content"].strip()
+
+    async def complete_json(
+        self,
+        messages: list[dict[str, str]],
+        *,
+        temperature: float = 0,
+    ) -> dict[str, Any]:
+        content = await self.complete_messages(
+            messages,
+            temperature=temperature,
+            response_format={"type": "json_object"},
+        )
+        try:
+            return json.loads(content)
+        except json.JSONDecodeError as exc:
+            raise ValueError("LLM response was not valid JSON") from exc
 
     async def aclose(self) -> None:
         await self.client.aclose()

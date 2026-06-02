@@ -8,6 +8,8 @@ from pathlib import Path
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 
+from asr_evo.core.context import ContextStore
+
 
 class ControlConfig(BaseModel):
     port: int = Field(default=8765, ge=1, le=65535)
@@ -35,6 +37,14 @@ class ContextConfig(BaseModel):
     max_items: int = Field(default=20, ge=1)
     max_chars: int = Field(default=6000, ge=1)
     scope: str = "app"
+
+    def store(self) -> ContextStore:
+        return ContextStore(
+            ttl_seconds=self.ttl_seconds,
+            max_items=self.max_items,
+            max_chars=self.max_chars,
+            scope=self.scope,
+        )
 
 
 class ReviewConfig(BaseModel):
