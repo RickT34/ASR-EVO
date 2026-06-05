@@ -71,8 +71,8 @@ prompts/情景/邮件.md      -> id: 情景/邮件, label: 邮件, category: ("�
 The tray renders `category` as nested submenus. Runtime stores selected styles by id, so app bindings remain UI-independent:
 
 ```toml
-[style]
-app_styles = { "com.apple.mail" = "情景/邮件" }
+[style.app_styles]
+"com.apple.mail" = "情景/邮件"
 ```
 
 ## Runtime State

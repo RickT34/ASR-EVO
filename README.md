@@ -137,7 +137,8 @@ enable_thinking = false
 [style]
 mode = "通用润色"
 prompts_dir = "prompts"
-app_styles = {}
+
+[style.app_styles]
 
 [context]
 enabled = true
@@ -189,8 +190,9 @@ prompts/
 在某个应用前台时选择一个提示词，ASR-EVO 会自动把这个风格绑定到该应用，并写入：
 
 ```toml
-[style]
-app_styles = { "com.apple.TextEdit" = "通用润色", "com.apple.mail" = "情景/邮件" }
+[style.app_styles]
+"com.apple.TextEdit" = "通用润色"
+"com.apple.mail" = "情景/邮件"
 ```
 
 没有绑定过的应用使用 `[style].mode` 指定的全局默认风格。

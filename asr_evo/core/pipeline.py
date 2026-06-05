@@ -147,5 +147,5 @@ class DictationPipeline:
             raise
         finally:
             if self.options.cleanup_audio and audio is not None:
-                with contextlib.suppress(FileNotFoundError):
+                with contextlib.suppress(OSError):
                     audio.path.unlink()

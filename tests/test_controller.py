@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
+import pytest
+
 from asr_evo.config import AppConfig
 from asr_evo.core.context import ContextStore, DictationRecord
 from asr_evo.core.controller import DesktopControllerDependencies, DesktopDictationController
@@ -136,10 +138,8 @@ def test_controller_does_not_commit_config_when_runtime_rejects_it(tmp_path: Pat
         | {"on_config_applied": reject_config}
     )
 
-    try:
+    with pytest.raises(OSError, match="port in use"):
         controller.apply_config(config, persist=True)
-    except OSError:
-        pass
 
     assert controller.config.control.port != 9876
     assert not (tmp_path / "config.toml").exists()
@@ -147,12 +147,13 @@ def test_controller_does_not_commit_config_when_runtime_rejects_it(tmp_path: Pat
 
 def test_controller_handles_external_control_commands(tmp_path: Path) -> None:
     controller, deps = _make_controller(tmp_path)
-    controller.start_dictation = lambda: setattr(controller.state, "state", DictationState.RECORDING)
+    controller.state.state = DictationState.RECORDING
 
-    started = controller.handle_control_command("start")
+    busy_start = controller.handle_control_command("start")
 
-    assert started.ok is True
-    assert started.state == "recording"
+    assert busy_start.ok is True
+    assert busy_start.state == "recording"
+    assert deps.tray.states[-1] == ("recording", "busy")
     stopped = controller.handle_control_command("stop")
     assert stopped.ok is True
     assert stopped.state == "recording"

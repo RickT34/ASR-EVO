@@ -42,13 +42,7 @@ class MacOSStatusTray:
         selected_style_id: str,
         actions: TrayMenuActions,
     ) -> None:
-        from AppKit import (
-            NSApplication,
-            NSMenu,
-            NSMenuItem,
-            NSStatusBar,
-            NSVariableStatusItemLength,
-        )
+        from AppKit import NSApplication, NSMenu, NSMenuItem, NSStatusBar, NSVariableStatusItemLength
 
         self.app = NSApplication.sharedApplication()
         self.status_item = NSStatusBar.systemStatusBar().statusItemWithLength_(
@@ -72,9 +66,7 @@ class MacOSStatusTray:
 
         self.menu = NSMenu.alloc().init()
         self.menu.setDelegate_(self)
-        self.control_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
-            control_menu_title(control_label), None, ""
-        )
+        self.control_item = _menu_item(control_menu_title(control_label))
         self.reveal_prompts_item = _MenuTargetItem.create(
             title=command_title(MenuCommand.REVEAL_PROMPTS),
             action=actions.reveal_prompts,
@@ -95,31 +87,21 @@ class MacOSStatusTray:
             title=command_title(MenuCommand.TOGGLE_REVIEW),
             action=actions.toggle_review,
         )
-        self.stats_menu_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
-            STATS_MENU_TITLE, None, ""
-        )
+        self.stats_menu_item = _menu_item(STATS_MENU_TITLE)
         self.stats_menu = NSMenu.alloc().initWithTitle_(STATS_MENU_TITLE)
         self.stats_menu_item.setSubmenu_(self.stats_menu)
-        self.history_menu_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
-            HISTORY_MENU_TITLE, None, ""
-        )
+        self.history_menu_item = _menu_item(HISTORY_MENU_TITLE)
         self.history_menu = NSMenu.alloc().initWithTitle_(HISTORY_MENU_TITLE)
         self.history_menu_item.setSubmenu_(self.history_menu)
-        self.prompt_menu_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
-            PROMPT_MENU_TITLE, None, ""
-        )
+        self.prompt_menu_item = _menu_item(PROMPT_MENU_TITLE)
         self.prompt_menu = NSMenu.alloc().initWithTitle_(PROMPT_MENU_TITLE)
         self.prompt_menu.setDelegate_(self)
         self.prompt_menu_item.setSubmenu_(self.prompt_menu)
-        self.input_device_menu_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
-            INPUT_DEVICE_MENU_TITLE, None, ""
-        )
+        self.input_device_menu_item = _menu_item(INPUT_DEVICE_MENU_TITLE)
         self.input_device_menu = NSMenu.alloc().initWithTitle_(INPUT_DEVICE_MENU_TITLE)
         self.input_device_menu.setDelegate_(self)
         self.input_device_menu_item.setSubmenu_(self.input_device_menu)
-        self.error_menu_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
-            ERROR_MENU_TITLE, None, ""
-        )
+        self.error_menu_item = _menu_item(ERROR_MENU_TITLE)
         self.error_menu = NSMenu.alloc().initWithTitle_(ERROR_MENU_TITLE)
         self.error_menu_item.setSubmenu_(self.error_menu)
         self.refresh_stats_item = _MenuTargetItem.create(
@@ -171,9 +153,7 @@ class MacOSStatusTray:
         self.error_menu_item.setHidden_(False)
         self.error_menu_item.setTitle_(f"当前错误：{feedback.title}")
         for title in error_feedback_lines(feedback):
-            item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(title, None, "")
-            item.setEnabled_(False)
-            self.error_menu.addItem_(item)
+            self.error_menu.addItem_(_readonly_item(title))
         self.error_menu.addItem_(NSMenuItem.separatorItem())
         copy_item = _MenuTargetItem.create(
             title=command_title(MenuCommand.COPY_ERROR),
@@ -216,20 +196,20 @@ class MacOSStatusTray:
             targets=self._style_targets,
         )
         self.prompt_menu.addItem_(NSMenuItem.separatorItem())
-        binding_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
-            self._app_binding_title, None, ""
-        )
-        binding_item.setEnabled_(False)
-        self.prompt_menu.addItem_(binding_item)
+        self.prompt_menu.addItem_(_readonly_item(self._app_binding_title))
         self.prompt_menu.addItem_(self.clear_app_style_item.item)
         self.prompt_menu.addItem_(NSMenuItem.separatorItem())
         self.prompt_menu.addItem_(self.reveal_prompts_item.item)
 
     def set_app_binding_summary(self, title: str) -> None:
+        if _call_on_main_thread(self.set_app_binding_summary, title):
+            return
         self._app_binding_title = title
         self.set_styles(self._styles, self._selected_style_id)
 
     def set_status_config(self, status_config: StatusConfig) -> None:
+        if _call_on_main_thread(self.set_status_config, status_config):
+            return
         self.status_config = status_config
 
     def set_review_enabled(self, enabled: bool) -> None:
@@ -250,21 +230,13 @@ class MacOSStatusTray:
     ) -> None:
         if _call_on_main_thread(self.set_input_devices, devices, selected_device_id):
             return
-        from AppKit import NSMenuItem
-
         self._input_devices = devices
         self._selected_input_device_id = selected_device_id
         self._input_device_targets = []
         self.input_device_menu.removeAllItems()
         self.input_device_menu_item.setTitle_(input_device_menu_title(devices, selected_device_id))
         if not devices:
-            item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
-                NO_INPUT_DEVICES_TITLE,
-                None,
-                "",
-            )
-            item.setEnabled_(False)
-            self.input_device_menu.addItem_(item)
+            self.input_device_menu.addItem_(_readonly_item(NO_INPUT_DEVICES_TITLE))
             return
         _add_input_devices_to_menu(
             menu=self.input_device_menu,
@@ -284,15 +256,11 @@ class MacOSStatusTray:
         self.stats_menu.addItem_(NSMenuItem.separatorItem())
         total_lines, app_lines = stats_menu_lines(totals=totals, app_stats=app_stats)
         for title in total_lines:
-            item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(title, None, "")
-            item.setEnabled_(False)
-            self.stats_menu.addItem_(item)
+            self.stats_menu.addItem_(_readonly_item(title))
         if app_lines:
             self.stats_menu.addItem_(NSMenuItem.separatorItem())
         for title in app_lines:
-            item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(title, None, "")
-            item.setEnabled_(False)
-            self.stats_menu.addItem_(item)
+            self.stats_menu.addItem_(_readonly_item(title))
 
     def set_history_records(self, records: list[dict]) -> None:
         if _call_on_main_thread(self.set_history_records, records):
@@ -302,17 +270,11 @@ class MacOSStatusTray:
         self.history_menu.removeAllItems()
         self._history_targets = []
         if not records:
-            item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
-                NO_HISTORY_RECORDS_TITLE,
-                None,
-                "",
-            )
-            item.setEnabled_(False)
-            self.history_menu.addItem_(item)
+            self.history_menu.addItem_(_readonly_item(NO_HISTORY_RECORDS_TITLE))
             return
         for record in history_menu_records(records):
             title = record.title
-            item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(title, None, "")
+            item = _menu_item(title)
             submenu = NSMenu.alloc().initWithTitle_(title)
             raw_preview = _readonly_item(record.raw_preview)
             final_preview = _readonly_item(record.final_preview)
@@ -456,11 +418,15 @@ class _MenuTargetItem:
 
 
 def _readonly_item(title: str) -> object:
-    from AppKit import NSMenuItem
-
-    item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(title, None, "")
+    item = _menu_item(title)
     item.setEnabled_(False)
     return item
+
+
+def _menu_item(title: str, action=None):
+    from AppKit import NSMenuItem
+
+    return NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(title, action, "")
 
 
 try:

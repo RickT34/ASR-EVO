@@ -16,6 +16,7 @@ dependencies = [
   "python-dotenv>=1.0",
   "sounddevice>=0.4.6",
   "soundfile>=0.12.1",
+  "tomli-w>=1.2",
   "pyobjc-framework-Cocoa>=10.3; sys_platform == 'darwin'",
   "pyobjc-framework-ApplicationServices>=10.3; sys_platform == 'darwin'",
   "pyobjc-framework-AVFoundation>=10.3; sys_platform == 'darwin'",

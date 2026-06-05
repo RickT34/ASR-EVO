@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import sys
 
 from asr_evo.config import INSERT_DEFAULTS, AppConfig
-from asr_evo.platforms.macos.inserter import MacOSTextInserter
 
 
 def main() -> None:
@@ -19,6 +19,11 @@ def main() -> None:
     parser.add_argument("--fallback", choices=["unicode_events", "pasteboard_restore"], default=None)
     args = parser.parse_args()
     AppConfig.load(args.config)
+    if sys.platform != "darwin":
+        raise SystemExit(f"asr-evo-insert-test only supports macOS, not {sys.platform}.")
+
+    from asr_evo.platforms.macos.inserter import MacOSTextInserter
+
     mode = args.mode or INSERT_DEFAULTS.mode
     fallback = args.fallback or INSERT_DEFAULTS.fallback
     asyncio.run(

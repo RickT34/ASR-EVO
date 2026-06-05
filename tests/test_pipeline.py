@@ -3,6 +3,8 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from pathlib import Path
 
+import pytest
+
 from asr_evo.core.context import ContextStore, DictationRecord
 from asr_evo.core.pipeline import (
     DictationDependencies,
@@ -19,6 +21,20 @@ class FakeRecorder:
 
     async def record_until_stopped(self) -> AudioClip:
         return AudioClip(path=self.path, sample_rate=16000, duration_seconds=1)
+
+
+class PermissionFailingPath:
+    def unlink(self) -> None:
+        raise PermissionError("cannot delete")
+
+
+class CleanupFailingRecorder:
+    async def record_until_stopped(self) -> AudioClip:
+        return AudioClip(
+            path=PermissionFailingPath(),
+            sample_rate=16000,
+            duration_seconds=1,
+        )
 
 
 class FakeASR:
@@ -148,7 +164,7 @@ async def test_pipeline_error_preserves_raw_transcript(tmp_path: Path) -> None:
     audio = tmp_path / "recording.wav"
     audio.write_bytes(b"audio")
 
-    try:
+    with pytest.raises(DictationPipelineError) as error:
         await DictationPipeline(
             dependencies=DictationDependencies(
                 recorder=FakeRecorder(audio),
@@ -163,12 +179,31 @@ async def test_pipeline_error_preserves_raw_transcript(tmp_path: Path) -> None:
                 prompt_instruction="整理为自然清楚的中文。",
             ),
         ).run_once()
-    except DictationPipelineError as exc:
-        assert exc.raw_text == "raw"
-        assert exc.record is not None
-        assert exc.record.raw_text == "raw"
-        assert exc.record.final_text == ""
-    else:
-        raise AssertionError("expected pipeline error")
+
+    exc = error.value
+    assert exc.raw_text == "raw"
+    assert exc.record is not None
+    assert exc.record.raw_text == "raw"
+    assert exc.record.final_text == ""
 
     assert not audio.exists()
+
+
+async def test_pipeline_cleanup_failure_does_not_hide_remote_error() -> None:
+    with pytest.raises(DictationPipelineError, match="remote failed") as error:
+        await DictationPipeline(
+            dependencies=DictationDependencies(
+                recorder=CleanupFailingRecorder(),
+                asr=FakeASR(),
+                llm=FailingLLM(),
+                app_provider=FakeAppProvider(),
+                context_store=ContextStore(scope="app"),
+                tray=FakeTray(),
+            ),
+            options=DictationOptions(
+                style="polished",
+                prompt_instruction="整理为自然清楚的中文。",
+            ),
+        ).run_once()
+
+    assert error.value.raw_text == "raw"

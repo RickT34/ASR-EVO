@@ -66,6 +66,11 @@ class DesktopControllerDependencies:
     on_config_applied: Callable[[AppConfig], None] | None = None
 
 
+@dataclass(frozen=True)
+class RuntimeConfigApplication:
+    styles: StyleRegistry
+
+
 class DesktopDictationController:
     def __init__(
         self,
@@ -283,17 +288,10 @@ class DesktopDictationController:
         self.config = config
         if persist:
             config.save(self.dependencies.config_path)
-        self.dependencies.context_store.ttl = timedelta(seconds=config.context.ttl_seconds)
-        self.dependencies.context_store.max_items = config.context.max_items
-        self.dependencies.context_store.max_chars = config.context.max_chars
-        self.dependencies.context_store.scope = config.context.scope
-        self.styles = StyleRegistry(prompts_dir=config.style.prompts_dir)
-        self.style_bindings.configure(config, styles=self.styles)
+        applied = apply_runtime_config(config, self.dependencies, self.style_bindings)
+        self.styles = applied.styles
         self._sync_style_menu()
         self.update_app_binding_summary()
-        self.dependencies.tray.set_status_config(config.status)
-        self.dependencies.tray.set_review_enabled(config.review.enabled)
-        self.dependencies.recorder.set_input_device(config.audio.input_device)
         self.refresh_input_devices()
         self.refresh_menu_summaries()
 
@@ -399,3 +397,20 @@ async def _maybe_aclose(client: Any) -> None:
     result = close()
     if inspect.isawaitable(result):
         await result
+
+
+def apply_runtime_config(
+    config: AppConfig,
+    dependencies: DesktopControllerDependencies,
+    style_bindings: StyleBindingService,
+) -> RuntimeConfigApplication:
+    dependencies.context_store.ttl = timedelta(seconds=config.context.ttl_seconds)
+    dependencies.context_store.max_items = config.context.max_items
+    dependencies.context_store.max_chars = config.context.max_chars
+    dependencies.context_store.scope = config.context.scope
+    styles = StyleRegistry(prompts_dir=config.style.prompts_dir)
+    style_bindings.configure(config, styles=styles)
+    dependencies.tray.set_status_config(config.status)
+    dependencies.tray.set_review_enabled(config.review.enabled)
+    dependencies.recorder.set_input_device(config.audio.input_device)
+    return RuntimeConfigApplication(styles=styles)

@@ -24,7 +24,7 @@ mode = "通用润色"
 prompts_dir = "prompts"
 # 按应用绑定风格，key 是 bundle id，value 是风格 id。
 # 示例：{ "com.apple.TextEdit" = "通用润色", "md.obsidian" = "会议纪要", "com.apple.mail" = "写作/邮件" }
-app_styles = {}
+[style.app_styles]
 
 # 润色上下文配置。开启后，最近听写记录会作为上下文发给 LLM，用于更连贯地润色。
 [context]

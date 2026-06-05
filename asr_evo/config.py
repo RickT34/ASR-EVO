@@ -5,6 +5,7 @@ import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
+import tomli_w
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 
@@ -122,32 +123,28 @@ class AppConfig(BaseModel):
         for section, values in sections.items():
             if comment := CONFIG_COMMENTS.get(section):
                 lines.extend(f"# {line}" for line in comment)
-            lines.append(f"[{section}]")
-            for key, value in values.items():
+            section_lines = tomli_w.dumps({section: values}).strip().splitlines()
+            lines.append(section_lines[0])
+            rendered_values = section_lines[1:]
+            for rendered_line in rendered_values:
+                if nested_key := _nested_table_key(rendered_line, section):
+                    if comment := FIELD_COMMENTS.get((section, nested_key)):
+                        lines.extend(f"# {line}" for line in comment)
+                    lines.append(rendered_line)
+                    continue
+                key = rendered_line.split("=", 1)[0].strip()
                 if comment := FIELD_COMMENTS.get((section, key)):
                     lines.extend(f"# {line}" for line in comment)
-                lines.append(f"{key} = {_toml_value(value)}")
+                lines.append(rendered_line)
             lines.append("")
         return "\n".join(lines)
 
 
-def _toml_value(value) -> str:
-    if isinstance(value, bool):
-        return "true" if value else "false"
-    if isinstance(value, int | float):
-        return str(value)
-    if isinstance(value, dict):
-        if not value:
-            return "{}"
-        items = []
-        for key, item_value in value.items():
-            escaped_key = str(key).replace("\\", "\\\\").replace('"', '\\"')
-            items.append(f'"{escaped_key}" = {_toml_value(item_value)}')
-        return "{ " + ", ".join(items) + " }"
-    if value is None:
-        return '""'
-    escaped = str(value).replace("\\", "\\\\").replace('"', '\\"')
-    return f'"{escaped}"'
+def _nested_table_key(line: str, section: str) -> str:
+    prefix = f"[{section}."
+    if line.startswith(prefix) and line.endswith("]"):
+        return line.removeprefix(prefix).removesuffix("]")
+    return ""
 
 
 API_KEY_ENV = "DASHSCOPE_API_KEY"

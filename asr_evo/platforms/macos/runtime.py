@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import queue
 import subprocess
 import sys
@@ -35,6 +36,8 @@ from asr_evo.platforms.macos.tray import MacOSStatusTray
 from asr_evo.providers.factory import create_asr_provider, create_llm_provider
 from asr_evo.storage.history import HistoryStore
 from asr_evo.ui.text_review import TkTextReviewer
+
+MAIN_THREAD_TIMEOUT_SECONDS = 2
 
 
 class MacOSDictationRuntime:
@@ -101,7 +104,14 @@ class MacOSDictationRuntime:
         NSApp.run()
 
     def _handle_control_command(self, command: str) -> ControlResult:
-        return call_on_main_thread(self.controller.handle_control_command, command)
+        try:
+            return call_on_main_thread(self.controller.handle_control_command, command)
+        except concurrent.futures.TimeoutError:
+            return ControlResult(
+                ok=False,
+                state=self.controller.state.state.value,
+                error="main thread did not handle the control command in time",
+            )
 
     def apply_config(self, config: AppConfig) -> None:
         if self.control_server.port == config.control.port:
@@ -156,7 +166,10 @@ def call_on_main_thread(callback, *args):
             result_queue.put((False, exc))
 
     AppHelper.callAfter(run)
-    ok, result = result_queue.get(timeout=2)
+    try:
+        ok, result = result_queue.get(timeout=MAIN_THREAD_TIMEOUT_SECONDS)
+    except queue.Empty as exc:
+        raise concurrent.futures.TimeoutError from exc
     if ok:
         return result
     raise result
