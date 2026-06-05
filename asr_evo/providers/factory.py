@@ -3,27 +3,30 @@ from __future__ import annotations
 from asr_evo.config import API_KEY_ENV, PROVIDER_DEFAULTS, AppConfig
 from asr_evo.providers.request_debug import RemoteRequestDebugOptions
 
-from .aliyun_asr import AliyunASRProvider
-from .openai_compat_llm import OpenAICompatibleLLMProvider
+from .openai_provider import (
+    OpenAIChatCompletionsASRProvider,
+    OpenAIChatCompletionsLLMProvider,
+)
 
 
-def create_llm_provider(config: AppConfig) -> OpenAICompatibleLLMProvider:
+def create_llm_provider(config: AppConfig) -> OpenAIChatCompletionsLLMProvider:
     api_key = config.api_key()
     if not api_key:
         raise RuntimeError(f"Missing API key in ${API_KEY_ENV}. Add it to .env.")
-    return OpenAICompatibleLLMProvider(
+    return OpenAIChatCompletionsLLMProvider(
         api_key=api_key,
         base_url=config.llm.base_url,
         model=config.llm.model,
+        enable_thinking=config.llm.enable_thinking,
         request_debug=_request_debug_options(config),
     )
 
 
-def create_asr_provider(config: AppConfig) -> AliyunASRProvider:
+def create_asr_provider(config: AppConfig) -> OpenAIChatCompletionsASRProvider:
     api_key = config.api_key()
     if not api_key:
         raise RuntimeError(f"Missing API key in ${API_KEY_ENV}. Add it to .env.")
-    return AliyunASRProvider(
+    return OpenAIChatCompletionsASRProvider(
         api_key=api_key,
         model=config.asr.model,
         base_url=config.asr.base_url,

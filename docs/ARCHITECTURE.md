@@ -20,9 +20,7 @@ asr_evo/
   ui/
     menu.py                 # platform-neutral menu/status presentation helpers
   providers/
-    aliyun_asr.py           # DashScope Qwen ASR adapter
-    openai_compat_llm.py    # OpenAI-compatible chat completions adapter
-    http_retry.py           # retry and provider error normalization
+    openai_provider.py      # OpenAI SDK-backed chat completions adapters
     factory.py              # config -> provider instances
   postprocess/
     prompts.py              # message construction for LLM post-processing
@@ -84,7 +82,7 @@ The macOS runtime owns long-lived platform services:
 - `DictationControlServer`
 - `MacOSStatusTray`
 - `SoundDeviceRecorder`
-- provider HTTP clients
+- OpenAI SDK clients
 - `ContextStore`
 - `HistoryStore`
 

@@ -54,19 +54,19 @@ def feedback_from_exception(exc: Exception, *, raw_text_saved: bool = False) -> 
         title = "网络连接失败"
         detail = "连接 ASR/LLM 服务时失败或超时。"
         suggestion = "请检查网络、代理和 base_url；恢复后重新听写即可。"
-    elif "provider http 401" in lower_message or "provider http 403" in lower_message:
+    elif _has_status_code(lower_message, 401, 403):
         title = "服务鉴权失败"
         detail = "ASR/LLM 服务拒绝了当前请求。"
         suggestion = "请检查 DASHSCOPE_API_KEY 是否正确、是否有模型权限或额度。"
-    elif "provider http 429" in lower_message:
+    elif _has_status_code(lower_message, 429):
         title = "请求过于频繁"
         detail = "服务端触发了限流。"
         suggestion = "请稍等一会儿再试；如果经常出现，降低连续听写频率或检查服务限额。"
-    elif "provider http 400" in lower_message or "provider http 404" in lower_message:
+    elif _has_status_code(lower_message, 400, 404):
         title = "服务配置有误"
         detail = "服务端无法识别当前请求、模型或地址。"
         suggestion = "请检查 config.toml 中的 model 和 base_url，然后重新加载配置。"
-    elif any(code in lower_message for code in ("provider http 500", "provider http 502", "provider http 503", "provider http 504")):
+    elif _has_status_code(lower_message, 500, 502, 503, 504):
         title = "服务暂时不可用"
         detail = "ASR/LLM 服务端返回了临时错误。"
         suggestion = "请稍后重试；如果持续出现，检查服务状态或切换可用模型。"
@@ -108,3 +108,12 @@ def _compact_message(message: str, *, limit: int = 120) -> str:
     if len(text) <= limit:
         return text
     return text[:limit] + "..."
+
+
+def _has_status_code(message: str, *codes: int) -> bool:
+    return any(
+        f"provider http {code}" in message
+        or f"error code: {code}" in message
+        or f"status code: {code}" in message
+        for code in codes
+    )

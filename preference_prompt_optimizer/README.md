@@ -60,9 +60,8 @@ The JSON output contains:
 The CLI loads `config.toml` by default and uses the same LLM configuration and
 `DASHSCOPE_API_KEY` environment variable as normal polishing. Use `--config` for
 another config file or `--model` to temporarily override `config.llm.model`.
-It reuses the project LLM provider factory, so retry behavior, HTTP error
-normalization, request debugging, and API shape stay aligned with the normal
-polishing path.
+It reuses the project LLM provider factory, so OpenAI SDK behavior, request
+debugging, and API shape stay aligned with the normal polishing path.
 
 By default the optimizer runs three refinement rounds. Use `--rounds N` to trade
 cost for additional attempts to improve the score.

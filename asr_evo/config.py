@@ -23,6 +23,7 @@ class ASRConfig(BaseModel):
 class LLMConfig(BaseModel):
     base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
     model: str = "qwen-plus"
+    enable_thinking: bool = False
 
 
 class StyleConfig(BaseModel):
@@ -229,6 +230,7 @@ FIELD_COMMENTS: dict[tuple[str, str], list[str]] = {
     ("context", "max_items"): ["最多传入多少条近期听写记录。"],
     ("context", "max_chars"): ["最多传入多少个上下文字数。"],
     ("context", "scope"): ["上下文范围：app 表示同一应用，window 表示同一窗口，time 表示仅按时间。"],
+    ("llm", "enable_thinking"): ["是否开启模型思考模式；默认关闭以减少延迟和额外输出。"],
     ("debug", "include_large_request_values"): [
         "设为 true 会打印完整大字段，例如音频 base64；只建议临时排查时开启。"
     ],

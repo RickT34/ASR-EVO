@@ -23,6 +23,13 @@ def test_feedback_from_pipeline_error_mentions_saved_raw_text() -> None:
     assert "原始转写已保存" in feedback.copy_text()
 
 
+def test_feedback_from_openai_status_error_maps_service_config() -> None:
+    feedback = feedback_from_exception(RuntimeError("Error code: 404 - model not found"))
+
+    assert feedback.title == "服务配置有误"
+    assert "model" in feedback.suggestion
+
+
 def test_error_feedback_lines_include_saved_raw_text_marker() -> None:
     feedback = ErrorFeedback(
         title="听写失败",

@@ -132,6 +132,7 @@ base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 [llm]
 base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 model = "qwen-plus"
+enable_thinking = false
 
 [style]
 mode = "通用润色"

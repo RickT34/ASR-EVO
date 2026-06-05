@@ -13,6 +13,8 @@ base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 [llm]
 base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 model = "qwen-plus"
+# 是否开启模型思考模式；默认关闭以减少延迟和额外输出。
+enable_thinking = false
 
 # 提示词风格配置。所有风格都来自 prompts_dir 目录中的 .md 文件。
 # 风格 id 是提示词文件名去掉扩展名，例如 通用润色.md 对应 通用润色。

@@ -13,6 +13,7 @@ def test_config_save_and_load_roundtrip(tmp_path: Path) -> None:
     config.context.scope = "window"
     config.style.prompts_dir = "my-prompts"
     config.style.app_styles["com.example.Editor"] = "会议纪要"
+    config.llm.enable_thinking = True
     config.audio.input_device = "3"
     config.control.port = 9876
     config.status.idle_icon = "听写"
@@ -29,6 +30,7 @@ def test_config_save_and_load_roundtrip(tmp_path: Path) -> None:
     assert loaded.context.scope == "window"
     assert loaded.style.prompts_dir == "my-prompts"
     assert loaded.style.app_styles["com.example.Editor"] == "会议纪要"
+    assert loaded.llm.enable_thinking is True
     assert loaded.audio.input_device == "3"
     assert loaded.control.port == 9876
     assert loaded.status.idle_icon == "听写"
