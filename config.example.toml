@@ -48,15 +48,15 @@ enabled = true
 [audio]
 input_device = ""
 
-# 状态栏图标和提示文字。icon 会直接显示在 macOS 状态栏中，建议保持简短。
+# 状态栏图标和提示文字。symbol 使用 SF Symbols 名称，由 macOS 渲染为状态栏模板图标。
 [status]
-idle_icon = "ASR"
-recording_icon = "REC ASR"
-transcribing_icon = "... ASR"
-polishing_icon = "TXT ASR"
-inserting_icon = "INS ASR"
-reviewing_icon = "EDIT ASR"
-error_icon = "! ASR"
+idle_symbol = "mic"
+recording_symbol = "record.circle"
+transcribing_symbol = "waveform"
+polishing_symbol = "text.alignleft"
+inserting_symbol = "text.insert"
+reviewing_symbol = "square.and.pencil"
+error_symbol = "exclamationmark.triangle"
 idle_text = "空闲"
 recording_text = "正在录音"
 transcribing_text = "正在转写"

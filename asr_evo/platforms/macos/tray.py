@@ -49,7 +49,6 @@ class MacOSStatusTray:
             NSVariableStatusItemLength
         )
         self.button = self.status_item.button()
-        self.button.setTitle_("ASR")
         self.status_config = status_config
         self.actions = actions
         self._style_targets: list[_MenuTargetItem] = []
@@ -127,6 +126,7 @@ class MacOSStatusTray:
         self.menu.addItem_(NSMenuItem.separatorItem())
         self.menu.addItem_(self.quit_item.item)
         self.status_item.setMenu_(self.menu)
+        self.set_state("idle")
         self.set_styles(styles, selected_style_id)
         self.set_review_enabled(True)
         self.set_error_feedback(None)
@@ -135,7 +135,8 @@ class MacOSStatusTray:
         if _call_on_main_thread(self.set_state, state, detail):
             return
         status = status_presentation(self.status_config, state, detail)
-        self.button.setTitle_(status.title)
+        self.button.setTitle_("")
+        self.button.setImage_(_symbol_image(status.symbol_name))
         self.button.setToolTip_(status.tooltip)
 
     def set_error_feedback(self, feedback: ErrorFeedback | None) -> None:
@@ -427,6 +428,30 @@ def _menu_item(title: str, action=None):
     from AppKit import NSMenuItem
 
     return NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(title, action, "")
+
+
+def _symbol_image(symbol_name: str):
+    from AppKit import (
+        NSFontWeightMedium,
+        NSImage,
+        NSImageSymbolConfiguration,
+        NSImageSymbolScaleMedium,
+    )
+
+    image = NSImage.imageWithSystemSymbolName_accessibilityDescription_(symbol_name, None)
+    if image is None:
+        image = NSImage.imageWithSystemSymbolName_accessibilityDescription_("mic", None)
+    configuration = NSImageSymbolConfiguration.configurationWithPointSize_weight_scale_(
+        17,
+        NSFontWeightMedium,
+        NSImageSymbolScaleMedium,
+    )
+    configured_image = image.imageWithSymbolConfiguration_(configuration) if image is not None else None
+    if configured_image is not None:
+        image = configured_image
+    if image is not None:
+        image.setTemplate_(True)
+    return image
 
 
 try:

@@ -86,7 +86,7 @@ class HistoryMenuRecord:
 
 @dataclass(frozen=True)
 class StatusPresentation:
-    title: str
+    symbol_name: str
     tooltip: str
 
 
@@ -260,22 +260,22 @@ def error_feedback_lines(feedback: ErrorFeedback) -> list[str]:
 
 
 def status_presentation(config: StatusConfig, state: str, detail: str = "") -> StatusPresentation:
-    title = status_icon_map(config).get(state, "ASR")
+    symbol_name = status_symbol_map(config).get(state, "mic")
     tooltip = status_text_map(config).get(state, state)
     if detail:
         tooltip = f"{tooltip}：{detail}"
-    return StatusPresentation(title=title, tooltip=tooltip)
+    return StatusPresentation(symbol_name=symbol_name, tooltip=tooltip)
 
 
-def status_icon_map(config: StatusConfig) -> dict[str, str]:
+def status_symbol_map(config: StatusConfig) -> dict[str, str]:
     return {
-        "idle": config.idle_icon,
-        "recording": config.recording_icon,
-        "transcribing": config.transcribing_icon,
-        "polishing": config.polishing_icon,
-        "reviewing": config.reviewing_icon,
-        "inserting": config.inserting_icon,
-        "error": config.error_icon,
+        "idle": config.idle_symbol,
+        "recording": config.recording_symbol,
+        "transcribing": config.transcribing_symbol,
+        "polishing": config.polishing_symbol,
+        "reviewing": config.reviewing_symbol,
+        "inserting": config.inserting_symbol,
+        "error": config.error_symbol,
     }
 
 

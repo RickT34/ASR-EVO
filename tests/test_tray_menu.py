@@ -91,14 +91,14 @@ def test_history_menu_records_format_titles_and_previews() -> None:
     assert records[0].user_edit_preview == "修订：user edit"
 
 
-def test_status_presentation_uses_configured_icon_and_text() -> None:
+def test_status_presentation_uses_configured_symbol_and_text() -> None:
     status = status_presentation(StatusConfig(), "recording", "ready")
 
-    assert status.title == "REC ASR"
+    assert status.symbol_name == "record.circle"
     assert status.tooltip == "正在录音：ready"
 
     reviewing = status_presentation(StatusConfig(), "reviewing")
-    assert reviewing.title == "EDIT ASR"
+    assert reviewing.symbol_name == "square.and.pencil"
     assert reviewing.tooltip == "等待确认文本"
 
 

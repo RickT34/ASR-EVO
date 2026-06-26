@@ -58,13 +58,13 @@ class AudioConfig(BaseModel):
 
 
 class StatusConfig(BaseModel):
-    idle_icon: str = "ASR"
-    recording_icon: str = "REC ASR"
-    transcribing_icon: str = "... ASR"
-    polishing_icon: str = "TXT ASR"
-    inserting_icon: str = "INS ASR"
-    reviewing_icon: str = "EDIT ASR"
-    error_icon: str = "! ASR"
+    idle_symbol: str = "mic"
+    recording_symbol: str = "record.circle"
+    transcribing_symbol: str = "waveform"
+    polishing_symbol: str = "text.alignleft"
+    inserting_symbol: str = "text.insert"
+    reviewing_symbol: str = "square.and.pencil"
+    error_symbol: str = "exclamationmark.triangle"
     idle_text: str = "空闲"
     recording_text: str = "正在录音"
     transcribing_text: str = "正在转写"
@@ -209,7 +209,7 @@ CONFIG_COMMENTS: dict[str, list[str]] = {
         "也可以填写 sounddevice 设备编号；在托盘菜单切换后会自动保存。",
     ],
     "status": [
-        "状态栏图标和提示文字。icon 会直接显示在 macOS 状态栏中，建议保持简短。",
+        "状态栏图标和提示文字。symbol 使用 SF Symbols 名称，由 macOS 渲染为状态栏模板图标。",
     ],
     "debug": [
         "调试配置。开启后会把调试快照打印到 stderr。",
