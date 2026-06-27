@@ -24,15 +24,28 @@ class DictationResult:
     record: DictationRecord
     audio_seconds: float
     app_context: AppContext | None = None
+    context: str = ""
 
-    def with_user_text(self, user_text: str) -> "DictationResult":
-        record = replace(self.record, user_edited_text=user_text)
+    def with_reviewed_text(
+        self,
+        *,
+        user_text: str,
+        final_text: str | None = None,
+        style: str | None = None,
+    ) -> "DictationResult":
+        record = replace(
+            self.record,
+            final_text=self.final_text if final_text is None else final_text,
+            user_edited_text=user_text,
+            style=self.record.style if style is None else style,
+        )
         return DictationResult(
             raw_text=self.raw_text,
-            final_text=self.final_text,
+            final_text=record.final_text,
             record=record,
             audio_seconds=self.audio_seconds,
             app_context=self.app_context,
+            context=self.context,
         )
 
 
@@ -128,6 +141,7 @@ class DictationPipeline:
                 record=record,
                 audio_seconds=audio.duration_seconds,
                 app_context=app_context,
+                context=context,
             )
         except Exception as exc:
             if transcript_text:

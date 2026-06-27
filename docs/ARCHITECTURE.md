@@ -48,14 +48,16 @@ external trigger
      -> ASRProvider.transcribe(audio)
      -> ContextStore.render_for_prompt(app)
      -> LLMProvider.polish(raw_text, context, prompt_instruction)
-     -> TextReviewer.review(final_text) when enabled
+     -> TextReviewer.review(request, previewer, saver) when enabled
+        -> previewer(style/prompt) may call LLMProvider.polish again
+        -> saver(style/prompt) may update prompt files and app bindings
      -> TextInserter.insert(user_text)
      -> HistoryStore.add(record)
 ```
 
 `DictationPipeline` catches failures after ASR succeeds and wraps them in `DictationPipelineError` with the raw transcript attached. The runtime persists that partial record, so users do not lose text when LLM or insertion fails.
 
-When review is enabled, the controller asks `TextReviewer` to show the polished text in an editable confirmation box before insertion. Confirmed text is stored as `user_edited_text` and inserted. If review is disabled, `user_edited_text` is initialized with the LLM-polished text. Polishing context always renders `user_edited_text`, so the field means "the text the user ultimately accepted".
+When review is enabled, the controller sends `TextReviewer` the raw transcript, current polished text, selected prompt, available styles, and the rendered context. The reviewer UI may ask the controller-owned preview callback to re-run polishing with a different or edited prompt, or ask the save callback to persist the prompt file and current-app style binding; the UI does not call providers or write config files directly. Confirmed text is stored as `user_edited_text` and inserted. The last AI preview remains `final_text`, and the selected preview style is stored as `style`. If review is disabled, `user_edited_text` is initialized with the LLM-polished text. Polishing context always renders `user_edited_text`, so the field means "the text the user ultimately accepted".
 
 The localhost control path is intentionally small: commands are `start`, `stop`, `toggle`, and `status`, serialized as one JSON request per TCP connection. The server listens only on `127.0.0.1`. External hotkey tools own key capture; ASR-EVO only owns the long-lived tray process and the local command endpoint.
 

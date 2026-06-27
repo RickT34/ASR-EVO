@@ -44,6 +44,20 @@ def test_style_registry_creates_empty_prompt_dir_without_default_files(tmp_path:
     assert registry.all() == []
 
 
+def test_style_registry_updates_prompt_file_and_cache(tmp_path: Path) -> None:
+    prompts = tmp_path / "prompts"
+    prompts.mkdir()
+    prompt_file = prompts / "work-chat.md"
+    prompt_file.write_text("old prompt", encoding="utf-8")
+    registry = StyleRegistry(prompts_dir=prompts)
+
+    updated = registry.update_prompt("work-chat", "new prompt")
+
+    assert updated.prompt == "new prompt"
+    assert registry.get("work-chat").prompt == "new prompt"
+    assert prompt_file.read_text(encoding="utf-8") == "new prompt\n"
+
+
 def test_style_registry_raises_when_no_prompt_files_exist(tmp_path: Path) -> None:
     registry = StyleRegistry(prompts_dir=tmp_path)
 

@@ -34,6 +34,7 @@ from asr_evo.core.ports import (
     TextInserter,
     TextReviewer,
 )
+from asr_evo.core.review import TextReviewService
 from asr_evo.core.state import DictationState
 from asr_evo.core.style_binding import StyleBindingService
 from asr_evo.postprocess.styles import StyleRegistry
@@ -334,13 +335,16 @@ class DesktopDictationController:
                 ),
             )
             result = await pipeline.run_once()
-            user_text = await self._review_text(result.final_text)
-            if user_text is None:
+            if self.config.review.enabled:
+                _StateTrackingTray(self).set_state(DictationState.REVIEWING.value)
+            review_service = self._review_service()
+            review_result = await review_service.review(result, enabled=self.config.review.enabled)
+            if review_result is None:
                 _StateTrackingTray(self).set_state(DictationState.IDLE.value, "已取消插入")
                 return
             _StateTrackingTray(self).set_state(DictationState.INSERTING.value)
-            result = result.with_user_text(user_text)
-            await self.dependencies.inserter.insert(user_text)
+            result = review_service.apply_result(result, review_result)
+            await self.dependencies.inserter.insert(review_result.text)
             self.dependencies.history_store.add(result.record, audio_seconds=result.audio_seconds)
             self.refresh_menu_summaries()
         except DictationPipelineError as exc:
@@ -367,11 +371,15 @@ class DesktopDictationController:
         _StateTrackingTray(self).set_error_feedback(feedback)
         _StateTrackingTray(self).set_state(DictationState.ERROR.value, feedback.tooltip)
 
-    async def _review_text(self, text: str) -> str | None:
-        if not self.config.review.enabled:
-            return text
-        _StateTrackingTray(self).set_state(DictationState.REVIEWING.value)
-        return await self.dependencies.text_reviewer.review(text)
+    def _review_service(self) -> TextReviewService:
+        return TextReviewService(
+            reviewer=self.dependencies.text_reviewer,
+            llm=self.dependencies.llm_provider,
+            styles=self.styles,
+            style_bindings=self.style_bindings,
+            apply_config=self.apply_config,
+            sync_style_menu=self._sync_style_menu,
+        )
 
 
 class _StateTrackingTray:

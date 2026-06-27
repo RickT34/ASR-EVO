@@ -50,6 +50,22 @@ class StyleRegistry:
     def has(self, style_id: str) -> bool:
         return style_id in self._styles
 
+    def update_prompt(self, style_id: str, prompt: str) -> StyleDefinition:
+        if style_id not in self._styles:
+            raise KeyError(f"style not found: {style_id}")
+        style = self._styles[style_id]
+        path = Path(style.source)
+        path.write_text(prompt.strip() + "\n", encoding="utf-8")
+        updated = StyleDefinition(
+            id=style.id,
+            label=style.label,
+            prompt=prompt.strip(),
+            source=style.source,
+            category=style.category,
+        )
+        self._styles[style_id] = updated
+        return updated
+
     def default_style_id(self) -> str:
         styles = self.all()
         if not styles:

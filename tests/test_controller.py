@@ -11,7 +11,18 @@ from asr_evo.config import AppConfig
 from asr_evo.core.context import ContextStore, DictationRecord
 from asr_evo.core.controller import DesktopControllerDependencies, DesktopDictationController
 from asr_evo.core.errors import PermissionDeniedError
-from asr_evo.core.ports import AppContext, AppStatsSummary, AudioClip, InputDeviceSummary, Transcript
+from asr_evo.core.ports import (
+    AppContext,
+    AppStatsSummary,
+    AudioClip,
+    InputDeviceSummary,
+    TextReviewPreviewRequest,
+    TextReviewRequest,
+    TextReviewResult,
+    TextReviewSaveRequest,
+    TextReviewSaveResult,
+    Transcript,
+)
 from asr_evo.core.state import DictationState
 from asr_evo.postprocess.styles import StyleDefinition
 
@@ -39,11 +50,57 @@ async def test_controller_reviews_user_text_before_insert(tmp_path: Path) -> Non
     await controller.run_pipeline_once()
 
     records = deps.history_store.recent()
-    assert deps.text_reviewer.seen == ["final:raw"]
+    assert deps.text_reviewer.seen[0].raw_text == "raw"
+    assert deps.text_reviewer.seen[0].polished_text == "final:raw"
+    assert deps.text_reviewer.seen[0].prompt_instruction == "polish"
     assert deps.inserter.text == "user edited"
     assert records[0]["final_text"] == "final:raw"
     assert records[0]["user_edited_text"] == "user edited"
     assert deps.tray.states[-1] == ("idle", "")
+
+
+async def test_controller_previews_review_prompt_and_persists_selected_style(
+    tmp_path: Path,
+) -> None:
+    controller, deps = _make_controller(tmp_path)
+    deps.text_reviewer.preview_request = TextReviewPreviewRequest(
+        style_id="情景/邮件",
+        prompt_instruction="custom email prompt",
+    )
+    deps.text_reviewer.result = "user edited email"
+    deps.recorder.audio_path.write_bytes(b"audio")
+
+    await controller.run_pipeline_once()
+
+    records = deps.history_store.recent()
+    assert deps.llm_provider.calls == [
+        ("raw", "", "polish"),
+        ("raw", "", "custom email prompt"),
+    ]
+    assert deps.inserter.text == "user edited email"
+    assert records[0]["final_text"] == "preview:custom email prompt:raw"
+    assert records[0]["user_edited_text"] == "user edited email"
+    assert records[0]["style"] == "情景/邮件"
+
+
+async def test_controller_saves_review_prompt_and_current_app_style(tmp_path: Path) -> None:
+    controller, deps = _make_controller(tmp_path)
+    deps.text_reviewer.save_request = TextReviewSaveRequest(
+        style_id="情景/邮件",
+        prompt_instruction="saved email prompt",
+    )
+    deps.recorder.audio_path.write_bytes(b"audio")
+
+    await controller.run_pipeline_once()
+
+    assert (tmp_path / "prompts" / "情景" / "邮件.md").read_text(encoding="utf-8") == (
+        "saved email prompt\n"
+    )
+    assert AppConfig.load(tmp_path / "config.toml").style.app_styles["com.example.App"] == "情景/邮件"
+    assert deps.text_reviewer.save_result == TextReviewSaveResult(
+        message="已保存提示词并绑定 Example"
+    )
+    assert deps.tray.selected_style_id == "情景/邮件"
 
 
 async def test_controller_cancels_insert_when_review_is_cancelled(tmp_path: Path) -> None:
@@ -341,7 +398,13 @@ class FakeASR:
 
 
 class FakeLLM:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str, str]] = []
+
     async def polish(self, raw_text: str, context: str, prompt_instruction: str) -> str:
+        self.calls.append((raw_text, context, prompt_instruction))
+        if prompt_instruction.startswith("custom"):
+            return f"preview:{prompt_instruction}:{raw_text}"
         return f"final:{raw_text}"
 
     async def aclose(self) -> None:
@@ -360,13 +423,33 @@ class FakeTextReviewer:
     def __init__(self) -> None:
         self.result: str | None = None
         self.cancelled = False
-        self.seen: list[str] = []
+        self.seen: list[TextReviewRequest] = []
+        self.preview_request: TextReviewPreviewRequest | None = None
+        self.save_request: TextReviewSaveRequest | None = None
+        self.save_result: TextReviewSaveResult | None = None
 
-    async def review(self, text: str) -> str | None:
-        self.seen.append(text)
+    async def review(self, request, previewer, saver) -> TextReviewResult | None:
+        self.seen.append(request)
         if self.cancelled:
             return None
-        return self.result if self.result is not None else text
+        style_id = request.style_id
+        prompt_instruction = request.prompt_instruction
+        polished_text = request.polished_text
+        if self.preview_request is not None:
+            polished_text = await previewer(self.preview_request)
+            style_id = self.preview_request.style_id
+            prompt_instruction = self.preview_request.prompt_instruction
+        if self.save_request is not None:
+            self.save_result = await saver(self.save_request)
+            style_id = self.save_request.style_id
+            prompt_instruction = self.save_request.prompt_instruction
+        text = self.result if self.result is not None else polished_text
+        return TextReviewResult(
+            text=text,
+            polished_text=polished_text,
+            style_id=style_id,
+            prompt_instruction=prompt_instruction,
+        )
 
 
 class FakeAppProvider:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
@@ -72,8 +73,59 @@ class TextInserter(Protocol):
     async def insert(self, text: str) -> None: ...
 
 
+@dataclass(frozen=True)
+class TextReviewStyle:
+    id: str
+    label: str
+    prompt: str
+
+
+@dataclass(frozen=True)
+class TextReviewRequest:
+    raw_text: str
+    polished_text: str
+    style_id: str
+    prompt_instruction: str
+    styles: list[TextReviewStyle]
+    context: str = ""
+
+
+@dataclass(frozen=True)
+class TextReviewPreviewRequest:
+    style_id: str
+    prompt_instruction: str
+
+
+@dataclass(frozen=True)
+class TextReviewSaveRequest:
+    style_id: str
+    prompt_instruction: str
+
+
+@dataclass(frozen=True)
+class TextReviewSaveResult:
+    message: str
+
+
+@dataclass(frozen=True)
+class TextReviewResult:
+    text: str
+    polished_text: str
+    style_id: str
+    prompt_instruction: str
+
+
+TextReviewPreviewer = Callable[[TextReviewPreviewRequest], Awaitable[str]]
+TextReviewSaver = Callable[[TextReviewSaveRequest], Awaitable[TextReviewSaveResult]]
+
+
 class TextReviewer(Protocol):
-    async def review(self, text: str) -> str | None: ...
+    async def review(
+        self,
+        request: TextReviewRequest,
+        previewer: TextReviewPreviewer,
+        saver: TextReviewSaver,
+    ) -> TextReviewResult | None: ...
 
 
 class FrontmostAppProvider(Protocol):
