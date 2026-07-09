@@ -3,6 +3,9 @@ from __future__ import annotations
 import asyncio
 import time
 
+CLIPBOARD_RETRIES = 8
+CLIPBOARD_RETRY_DELAY_SECONDS = 0.05
+
 
 class WindowsTextInserter:
     def __init__(self, *, restore_delay_ms: int = 300) -> None:
@@ -19,6 +22,7 @@ class WindowsTextInserter:
 
         old_text = _clipboard_get_text()
         _clipboard_set_text(text)
+        time.sleep(CLIPBOARD_RETRY_DELAY_SECONDS)
 
         keyboard = Controller()
         with keyboard.pressed(Key.ctrl):
@@ -36,27 +40,47 @@ class WindowsClipboard:
 
 
 def _clipboard_get_text() -> str:
-    import tkinter as tk
-
-    root = tk.Tk()
-    root.withdraw()
     try:
-        try:
-            return str(root.clipboard_get())
-        except tk.TclError:
+        import win32clipboard
+        import win32con
+    except ImportError as exc:
+        raise RuntimeError("pywin32 is required for Windows clipboard access") from exc
+
+    def read() -> str:
+        if not win32clipboard.IsClipboardFormatAvailable(win32con.CF_UNICODETEXT):
             return ""
-    finally:
-        root.destroy()
+        return str(win32clipboard.GetClipboardData(win32con.CF_UNICODETEXT) or "")
+
+    return _with_open_clipboard(read)
 
 
 def _clipboard_set_text(text: str) -> None:
-    import tkinter as tk
-
-    root = tk.Tk()
-    root.withdraw()
     try:
-        root.clipboard_clear()
-        root.clipboard_append(text)
-        root.update()
-    finally:
-        root.destroy()
+        import win32clipboard
+        import win32con
+    except ImportError as exc:
+        raise RuntimeError("pywin32 is required for Windows clipboard access") from exc
+
+    def write() -> None:
+        win32clipboard.EmptyClipboard()
+        win32clipboard.SetClipboardData(win32con.CF_UNICODETEXT, text)
+
+    _with_open_clipboard(write)
+
+
+def _with_open_clipboard(callback):
+    import win32clipboard
+
+    last_error: Exception | None = None
+    for _ in range(CLIPBOARD_RETRIES):
+        try:
+            win32clipboard.OpenClipboard()
+            try:
+                return callback()
+            finally:
+                win32clipboard.CloseClipboard()
+        except Exception as exc:
+            last_error = exc
+            time.sleep(CLIPBOARD_RETRY_DELAY_SECONDS)
+    assert last_error is not None
+    raise RuntimeError("Windows clipboard is unavailable") from last_error

@@ -503,7 +503,16 @@ def _request_from_message(message: dict[str, Any]) -> TextReviewRequest:
     )
 
 
+def configure_stdio_encoding(encoding: str = "utf-8") -> None:
+    for stream_name in ("stdin", "stdout", "stderr"):
+        stream = getattr(sys, stream_name)
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            reconfigure(encoding=encoding)
+
+
 def main() -> int:
+    configure_stdio_encoding()
     try:
         init_line = sys.stdin.readline()
         if not init_line:

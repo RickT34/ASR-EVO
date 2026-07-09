@@ -12,7 +12,8 @@ from asr_evo.core.ports import (
     TextReviewSaveResult,
     TextReviewStyle,
 )
-from asr_evo.ui.text_review import TkTextReviewer, parse_review_process_result
+from asr_evo.ui import text_review
+from asr_evo.ui.text_review import TkTextReviewer, configure_stdio_encoding, parse_review_process_result
 
 
 async def test_tk_text_reviewer_runs_dialog_module_in_child_process() -> None:
@@ -136,6 +137,23 @@ def test_parse_review_process_result_raises_stderr_on_failure() -> None:
         parse_review_process_result(1, b"", b"tk failed")
 
 
+def test_configure_stdio_encoding_reconfigures_all_standard_streams(monkeypatch) -> None:
+    streams = {
+        "stdin": _FakeTextStream(),
+        "stdout": _FakeTextStream(),
+        "stderr": _FakeTextStream(),
+    }
+    monkeypatch.setattr(text_review.sys, "stdin", streams["stdin"])
+    monkeypatch.setattr(text_review.sys, "stdout", streams["stdout"])
+    monkeypatch.setattr(text_review.sys, "stderr", streams["stderr"])
+
+    configure_stdio_encoding()
+
+    assert streams["stdin"].encoding == "utf-8"
+    assert streams["stdout"].encoding == "utf-8"
+    assert streams["stderr"].encoding == "utf-8"
+
+
 class _FakeProcess:
     def __init__(self, *, stdout: list[dict], stderr: bytes, returncode: int) -> None:
         self.stdout = _FakeStdout(stdout)
@@ -184,6 +202,14 @@ class _FakeStderr:
 
     async def read(self) -> bytes:
         return self.data
+
+
+class _FakeTextStream:
+    def __init__(self) -> None:
+        self.encoding = ""
+
+    def reconfigure(self, *, encoding: str) -> None:
+        self.encoding = encoding
 
 
 def _review_request() -> TextReviewRequest:

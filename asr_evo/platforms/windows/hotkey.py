@@ -15,6 +15,38 @@ MODIFIER_ALIASES = {
     "windows": "cmd",
 }
 
+SPECIAL_KEYS = {
+    "space",
+    "enter",
+    "return",
+    "tab",
+    "esc",
+    "escape",
+    "backspace",
+    "delete",
+    "insert",
+    "home",
+    "end",
+    "page_up",
+    "page_down",
+    "up",
+    "down",
+    "left",
+    "right",
+    *{f"f{index}" for index in range(1, 25)},
+}
+
+SPECIAL_KEY_ALIASES = {
+    "return": "enter",
+    "pgup": "page_up",
+    "pageup": "page_up",
+    "pgdn": "page_down",
+    "pagedown": "page_down",
+    "del": "delete",
+    "ins": "insert",
+    "escape": "esc",
+}
+
 
 def normalize_hotkey(value: str) -> str:
     parts = [part.strip().lower() for part in value.replace("-", "+").split("+")]
@@ -24,7 +56,11 @@ def normalize_hotkey(value: str) -> str:
     normalized = []
     for key in keys:
         alias = MODIFIER_ALIASES.get(key)
-        normalized.append(f"<{alias}>" if alias else key)
+        if alias:
+            normalized.append(f"<{alias}>")
+            continue
+        special_key = SPECIAL_KEY_ALIASES.get(key, key)
+        normalized.append(f"<{special_key}>" if special_key in SPECIAL_KEYS else key)
     return "+".join(normalized)
 
 
