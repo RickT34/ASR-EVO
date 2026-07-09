@@ -104,6 +104,12 @@ class MacOSDictationRuntime:
         NSApp.run()
 
     def _handle_control_command(self, command: str) -> ControlResult:
+        if command == "status":
+            return ControlResult(ok=True, state=self.controller.state.state.value)
+        if command == "stop":
+            return self._stop_recording_from_control_thread()
+        if command == "toggle" and self.controller.state.state.value == "recording":
+            return self._stop_recording_from_control_thread()
         try:
             return call_on_main_thread(self.controller.handle_control_command, command)
         except concurrent.futures.TimeoutError:
@@ -112,6 +118,11 @@ class MacOSDictationRuntime:
                 state=self.controller.state.state.value,
                 error="main thread did not handle the control command in time",
             )
+
+    def _stop_recording_from_control_thread(self) -> ControlResult:
+        if self.controller.state.state.value == "recording":
+            self.controller.dependencies.recorder.stop()
+        return ControlResult(ok=True, state=self.controller.state.state.value)
 
     def apply_config(self, config: AppConfig) -> None:
         if self.control_server.port == config.control.port:

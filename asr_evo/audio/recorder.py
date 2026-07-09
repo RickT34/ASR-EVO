@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import os
 import tempfile
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -38,18 +40,15 @@ class SoundDeviceRecorder:
         self.channels = channels
         self.input_device = _normalize_device_id(input_device)
         self._frames: list = []
-        self._stop_event: asyncio.Event | None = None
-        self._restart_event: asyncio.Event | None = None
-        self._loop: asyncio.AbstractEventLoop | None = None
+        self._stop_event: threading.Event | None = None
+        self._restart_event: threading.Event | None = None
+        self._lock = threading.Lock()
         self._stop_requested = False
 
     def set_input_device(self, device_id: str | int | None) -> None:
         self.input_device = _normalize_device_id(device_id)
         if self._restart_event is not None:
-            if self._loop and self._loop.is_running():
-                self._loop.call_soon_threadsafe(self._restart_event.set)
-            else:
-                self._restart_event.set()
+            self._restart_event.set()
 
     def input_devices(self) -> list[InputDevice]:
         return list_input_devices()
@@ -58,62 +57,78 @@ class SoundDeviceRecorder:
         return input_device_label(self.input_device, self.input_devices())
 
     async def record_until_stopped(self) -> AudioClip:
-        self._frames = []
-        self._loop = asyncio.get_running_loop()
-        self._stop_event = asyncio.Event()
-        if self._stop_requested:
-            self._stop_requested = False
-            self._stop_event.set()
         fd, raw_path = tempfile.mkstemp(prefix="asr-evo-", suffix=".wav")
         os.close(fd)
         path = Path(raw_path)
+        try:
+            return await asyncio.to_thread(self._record_until_stopped_sync, path)
+        except Exception:
+            with contextlib.suppress(OSError):
+                path.unlink()
+            raise
+
+    def _record_until_stopped_sync(self, path: Path) -> AudioClip:
+        self._frames = []
+        stop_event = threading.Event()
+        with self._lock:
+            self._stop_event = stop_event
+            if self._stop_requested:
+                self._stop_requested = False
+                stop_event.set()
+        sample_rate = _stream_sample_rate(
+            self.input_device,
+            channels=self.channels,
+            preferred_sample_rate=self.sample_rate,
+        )
 
         def callback(indata, frames, time, status) -> None:
             if status:
                 return
             self._frames.append(indata.copy())
 
-        while not self._stop_event.is_set():
-            self._restart_event = asyncio.Event()
-            with sd.InputStream(
-                device=_stream_device_arg(self.input_device),
-                samplerate=self.sample_rate,
-                channels=self.channels,
-                callback=callback,
-            ):
-                stop_task = asyncio.create_task(self._stop_event.wait())
-                restart_task = asyncio.create_task(self._restart_event.wait())
-                done, pending = await asyncio.wait(
-                    {stop_task, restart_task},
-                    return_when=asyncio.FIRST_COMPLETED,
+        try:
+            while not stop_event.is_set():
+                restart_event = threading.Event()
+                with self._lock:
+                    self._restart_event = restart_event
+                sample_rate = _stream_sample_rate(
+                    self.input_device,
+                    channels=self.channels,
+                    preferred_sample_rate=self.sample_rate,
                 )
-                for task in pending:
-                    task.cancel()
-                if stop_task in done:
-                    break
-        self._stop_requested = False
-        self._restart_event = None
+                with sd.InputStream(
+                    device=_stream_device_arg(self.input_device),
+                    samplerate=sample_rate,
+                    channels=self.channels,
+                    callback=callback,
+                ):
+                    while not stop_event.is_set():
+                        if restart_event.wait(timeout=0.05):
+                            break
+        finally:
+            with self._lock:
+                self._stop_requested = False
+                self._stop_event = None
+                self._restart_event = None
 
         if not self._frames:
-            sf.write(path, [], self.sample_rate)
-            return AudioClip(path=path, sample_rate=self.sample_rate, duration_seconds=0)
+            sf.write(path, [], sample_rate)
+            return AudioClip(path=path, sample_rate=sample_rate, duration_seconds=0)
 
         import numpy as np
 
         audio = np.concatenate(self._frames, axis=0)
-        sf.write(path, audio, self.sample_rate)
+        sf.write(path, audio, sample_rate)
         return AudioClip(
             path=path,
-            sample_rate=self.sample_rate,
-            duration_seconds=len(audio) / self.sample_rate,
+            sample_rate=sample_rate,
+            duration_seconds=len(audio) / sample_rate,
         )
 
     def stop(self) -> None:
-        self._stop_requested = True
-        if self._stop_event is not None:
-            if self._loop and self._loop.is_running():
-                self._loop.call_soon_threadsafe(self._stop_event.set)
-            else:
+        with self._lock:
+            self._stop_requested = True
+            if self._stop_event is not None:
                 self._stop_event.set()
 
 
@@ -162,6 +177,47 @@ def _stream_device_arg(device_id: str) -> int | str | None:
         return int(device_id)
     except ValueError:
         return device_id
+
+
+def _stream_sample_rate(
+    device_id: str,
+    *,
+    channels: int,
+    preferred_sample_rate: int,
+) -> int:
+    device_arg = _stream_device_arg(device_id)
+    if _input_settings_supported(device_arg, channels=channels, sample_rate=preferred_sample_rate):
+        return preferred_sample_rate
+
+    default_rate = _default_input_sample_rate(device_arg)
+    if default_rate and _input_settings_supported(device_arg, channels=channels, sample_rate=default_rate):
+        return default_rate
+
+    return preferred_sample_rate
+
+
+def _input_settings_supported(
+    device: int | str | None,
+    *,
+    channels: int,
+    sample_rate: int,
+) -> bool:
+    try:
+        sd.check_input_settings(device=device, channels=channels, samplerate=sample_rate)
+    except Exception:
+        return False
+    return True
+
+
+def _default_input_sample_rate(device: int | str | None) -> int | None:
+    try:
+        info = sd.query_devices(device, "input")
+    except Exception:
+        return None
+    try:
+        return int(float(info.get("default_samplerate") or 0))
+    except (AttributeError, TypeError, ValueError):
+        return None
 
 
 def _default_input_device_index() -> int | None:

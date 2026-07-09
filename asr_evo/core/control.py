@@ -81,7 +81,7 @@ class DictationControlServer:
             raw = await reader.readline()
             request = json.loads(raw.decode("utf-8"))
             command = str(request.get("command", ""))
-            result = self.handler(command)
+            result = await asyncio.to_thread(self.handler, command)
             payload = result.to_dict()
         except Exception as exc:
             payload = ControlResult(
@@ -99,7 +99,7 @@ def send_control_command(
     command: str,
     *,
     port: int,
-    timeout: float = 2,
+    timeout: float = 5,
 ) -> dict[str, Any]:
     if command not in CONTROL_COMMANDS:
         raise ValueError(f"unsupported control command: {command}")
