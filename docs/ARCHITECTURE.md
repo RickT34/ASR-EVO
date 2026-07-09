@@ -32,6 +32,12 @@ asr_evo/
       inserter.py           # pasteboard/accessibility/unicode insertion
       frontmost.py          # frontmost app detection
       permissions.py        # macOS permission checks
+    windows/
+      runtime.py            # orchestrates Windows services and core pipeline
+      tray.py               # pystray notification-area menu
+      hotkey.py             # pynput global hotkey registration
+      inserter.py           # clipboard/keyboard text insertion
+      frontmost.py          # foreground window detection
   storage/
     history.py              # SQLite history and statistics
 ```
@@ -59,7 +65,7 @@ external trigger
 
 When review is enabled, the controller sends `TextReviewer` the raw transcript, current polished text, selected prompt, available styles, and the rendered context. The reviewer UI may ask the controller-owned preview callback to re-run polishing with a different or edited prompt, or ask the save callback to persist the prompt file and current-app style binding; the UI does not call providers or write config files directly. Confirmed text is stored as `user_edited_text` and inserted. The last AI preview remains `final_text`, and the selected preview style is stored as `style`. If review is disabled, `user_edited_text` is initialized with the LLM-polished text. Polishing context always renders `user_edited_text`, so the field means "the text the user ultimately accepted".
 
-The localhost control path is intentionally small: commands are `start`, `stop`, `toggle`, and `status`, serialized as one JSON request per TCP connection. The server listens only on `127.0.0.1`. External hotkey tools own key capture; ASR-EVO only owns the long-lived tray process and the local command endpoint.
+The localhost control path is intentionally small: commands are `start`, `stop`, `toggle`, and `status`, serialized as one JSON request per TCP connection. The server listens only on `127.0.0.1`. On macOS, external hotkey tools own key capture and call `asr-evo-control`. On Windows, the runtime can also register the configured `[hotkey].toggle` global hotkey directly.
 
 ## Prompt Styles
 
@@ -79,16 +85,19 @@ The tray renders `category` as nested submenus. Runtime stores selected styles b
 
 ## Runtime State
 
-The macOS runtime owns long-lived platform services:
+The desktop runtime owns long-lived platform services:
 
 - `DictationControlServer`
-- `MacOSStatusTray`
+- platform `StatusTray`
 - `SoundDeviceRecorder`
 - OpenAI SDK clients
 - `ContextStore`
 - `HistoryStore`
+- Windows `WindowsHotkeyListener` when enabled
 
 The AppKit main thread runs the tray and platform UI work. The control server and async provider calls run on a dedicated asyncio loop thread; incoming control commands are dispatched back to the main thread before they touch frontmost-app or tray state. `DesktopDictationController` prevents overlapping dictation runs by switching state synchronously before scheduling the pipeline.
+
+On Windows, `pystray` owns the notification-area event loop and `pynput` owns global key capture. Both call the same `DesktopDictationController` actions used by the control endpoint; platform code must not duplicate prompt selection, persistence, or review rules.
 
 Config reload is two-phase for runtime-sensitive fields. For example, when `[control].port` changes, `MacOSDictationRuntime` binds the replacement `DictationControlServer` before the controller commits the new config or saves `config.toml`. If the new port is unavailable, the old runtime state and persisted config stay intact.
 
@@ -113,19 +122,20 @@ Core code talks to `Protocol`s in `core/ports.py`:
 
 `DictationPipeline` only needs the narrow `TrayUI` state/error surface. `DesktopDictationController` additionally uses `StatusTray` for desktop menu state such as styles, input devices, stats, and history. Runtime-only presentation such as the control endpoint label stays in the platform tray implementation, not in the core controller protocol.
 
-Future Windows/Linux support should implement these ports and keep the dictation pipeline unchanged. If a platform lacks a tray, it can replace `StatusTray` with another desktop status surface as long as the same application-level operations are available.
+Windows support implements these ports with `pystray`, `pynput`, Tk clipboard access, and `pywin32` foreground-window detection while keeping the dictation pipeline unchanged. Future Linux support should follow the same rule: platform code may replace `StatusTray` with another desktop status surface as long as the same application-level operations are available.
 
 ## Configuration Philosophy
 
 `config.toml` exposes only user-facing knobs:
 
 - control port
+- Windows global hotkey
 - ASR/LLM model and base URL
 - prompt directory, default style, app bindings
 - context enabled/TTL/max items/max chars/scope
 - review confirmation enabled
 - audio input device selection
-- status bar labels
+- status bar labels and macOS symbol names
 
 Internal choices such as storage path, insertion mode, ASR language and audio sample rate are currently constants in `config.py`. They can be promoted to config later if real users need them.
 

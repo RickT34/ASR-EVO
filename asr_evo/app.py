@@ -10,6 +10,10 @@ def create_runtime(config: AppConfig):
         from .platforms.macos.runtime import MacOSDictationRuntime
 
         return MacOSDictationRuntime(config)
+    if sys.platform == "win32":
+        from .platforms.windows.runtime import WindowsDictationRuntime
+
+        return WindowsDictationRuntime(config)
     raise SystemExit(f"ASR-EVO does not yet ship a runnable desktop runtime for {sys.platform}.")
 
 

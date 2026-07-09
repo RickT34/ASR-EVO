@@ -4,6 +4,12 @@
 [control]
 port = 8765
 
+# Windows 内置全局快捷键配置；macOS 推荐继续用 Hammerspoon/skhd 调用 asr-evo-control。
+# toggle 使用 ctrl+alt+space 这类写法。
+[hotkey]
+enabled = true
+toggle = "ctrl+alt+space"
+
 # 语音识别服务配置。API Key 从 .env 的 DASHSCOPE_API_KEY 读取。
 [asr]
 model = "qwen3-asr-flash"
@@ -48,7 +54,7 @@ enabled = true
 [audio]
 input_device = ""
 
-# 状态栏图标和提示文字。symbol 使用 SF Symbols 名称，由 macOS 渲染为状态栏模板图标。
+# 状态栏图标和提示文字。symbol 目前由 macOS 映射到 SF Symbols；Windows 托盘使用内置状态图标和这些提示文字。
 [status]
 idle_symbol = "mic"
 recording_symbol = "record.circle"

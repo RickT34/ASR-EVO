@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "asr-evo"
 version = "0.1.0"
-description = "A macOS-first dictation assistant with ASR and LLM post-processing."
+description = "A desktop dictation assistant with ASR and LLM post-processing."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
@@ -21,6 +21,10 @@ dependencies = [
   "pyobjc-framework-ApplicationServices>=10.3; sys_platform == 'darwin'",
   "pyobjc-framework-AVFoundation>=10.3; sys_platform == 'darwin'",
   "pyobjc-framework-Quartz>=10.3; sys_platform == 'darwin'",
+  "pillow>=10.0; sys_platform == 'win32'",
+  "pynput>=1.7.7; sys_platform == 'win32'",
+  "pystray>=0.19.5; sys_platform == 'win32'",
+  "pywin32>=306; sys_platform == 'win32'",
 ]
 
 [project.optional-dependencies]

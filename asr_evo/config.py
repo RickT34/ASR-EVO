@@ -16,6 +16,11 @@ class ControlConfig(BaseModel):
     port: int = Field(default=8765, ge=1, le=65535)
 
 
+class HotkeyConfig(BaseModel):
+    enabled: bool = True
+    toggle: str = "ctrl+alt+space"
+
+
 class ASRConfig(BaseModel):
     model: str = "qwen3-asr-flash"
     base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
@@ -82,6 +87,7 @@ class DebugConfig(BaseModel):
 
 class AppConfig(BaseModel):
     control: ControlConfig = ControlConfig()
+    hotkey: HotkeyConfig = HotkeyConfig()
     asr: ASRConfig = ASRConfig()
     llm: LLMConfig = LLMConfig()
     style: StyleConfig = StyleConfig()
@@ -110,6 +116,7 @@ class AppConfig(BaseModel):
     def to_toml(self) -> str:
         sections = {
             "control": self.control.model_dump(),
+            "hotkey": self.hotkey.model_dump(),
             "asr": self.asr.model_dump(),
             "llm": self.llm.model_dump(),
             "style": self.style.model_dump(),
@@ -186,6 +193,10 @@ CONFIG_COMMENTS: dict[str, list[str]] = {
         "外部触发控制接口。默认只监听 127.0.0.1，供本机工具调用。",
         "port 可改成其他本机端口；可用命令：asr-evo-control start | stop | toggle | status。",
     ],
+    "hotkey": [
+        "Windows 内置全局快捷键配置；macOS 推荐继续用 Hammerspoon/skhd 调用 asr-evo-control。",
+        "toggle 使用 ctrl+alt+space 这类写法。",
+    ],
     "asr": [
         "语音识别服务配置。API Key 从 .env 的 DASHSCOPE_API_KEY 读取。",
     ],
@@ -209,7 +220,7 @@ CONFIG_COMMENTS: dict[str, list[str]] = {
         "也可以填写 sounddevice 设备编号；在托盘菜单切换后会自动保存。",
     ],
     "status": [
-        "状态栏图标和提示文字。symbol 使用 SF Symbols 名称，由 macOS 渲染为状态栏模板图标。",
+        "状态栏图标和提示文字。symbol 目前由 macOS 映射到 SF Symbols；Windows 托盘使用内置状态图标和这些提示文字。",
     ],
     "debug": [
         "调试配置。开启后会把调试快照打印到 stderr。",
