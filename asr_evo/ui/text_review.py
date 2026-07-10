@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
+import subprocess
 import sys
 import threading
 from dataclasses import asdict
@@ -40,12 +42,8 @@ class TkTextReviewer:
         saver: TextReviewSaver,
     ) -> TextReviewResult | None:
         process = await self.process_factory(
-            sys.executable,
-            "-m",
-            "asr_evo.ui.text_review",
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
+            *_review_child_command(),
+            **_review_child_process_options(),
         )
         if process.stdin is None or process.stdout is None:
             raise ReviewProcessProtocolError("text review process pipes were not created")
@@ -142,6 +140,39 @@ class TkTextReviewer:
         )
 
 
+def _review_child_command() -> tuple[str, ...]:
+    return (
+        _review_python_executable(),
+        "-X",
+        "utf8",
+        "-m",
+        "asr_evo.ui.text_review",
+    )
+
+
+def _review_python_executable() -> str:
+    executable = sys.executable
+    if sys.platform != "win32" or not executable.lower().endswith("pythonw.exe"):
+        return executable
+    python_exe = executable[:-5] + ".exe"
+    return python_exe if os.path.exists(python_exe) else executable
+
+
+def _review_child_process_options() -> dict[str, Any]:
+    env = os.environ.copy()
+    env["PYTHONUTF8"] = "1"
+    env["PYTHONIOENCODING"] = "utf-8"
+    options: dict[str, Any] = {
+        "stdin": asyncio.subprocess.PIPE,
+        "stdout": asyncio.subprocess.PIPE,
+        "stderr": asyncio.subprocess.PIPE,
+        "env": env,
+    }
+    if sys.platform == "win32":
+        options["creationflags"] = subprocess.CREATE_NO_WINDOW
+    return options
+
+
 async def _write_json_line(stdin: asyncio.StreamWriter, message: dict[str, Any]) -> None:
     stdin.write((json.dumps(message, ensure_ascii=False) + "\n").encode("utf-8"))
     await stdin.drain()
@@ -223,6 +254,7 @@ def show_text_review(request: TextReviewRequest) -> TextReviewResult | None:
     prompt_after_id = {"value": ""}
 
     root = tk.Tk()
+    _configure_tk_fonts(root)
     root.title("确认文本")
     root.geometry("860x500")
     root.minsize(680, 420)
@@ -473,6 +505,41 @@ def show_text_review(request: TextReviewRequest) -> TextReviewResult | None:
     root.after(50, focus_text)
     root.mainloop()
     return result["value"]
+
+
+def _configure_tk_fonts(root) -> None:
+    if sys.platform != "win32":
+        return
+    try:
+        import tkinter as tk
+        from tkinter import font
+    except ImportError:
+        return
+    preferred = (
+        "Microsoft YaHei UI",
+        "Microsoft YaHei",
+        "SimSun",
+        "NSimSun",
+        "Arial Unicode MS",
+    )
+    families = set(font.families(root))
+    family = next((candidate for candidate in preferred if candidate in families), "")
+    if not family:
+        return
+    for name in (
+        "TkDefaultFont",
+        "TkTextFont",
+        "TkMenuFont",
+        "TkHeadingFont",
+        "TkCaptionFont",
+        "TkSmallCaptionFont",
+        "TkIconFont",
+        "TkTooltipFont",
+    ):
+        try:
+            font.nametofont(name).configure(family=family)
+        except tk.TclError:
+            continue
 
 
 def _send_stdout(message: dict[str, Any]) -> None:

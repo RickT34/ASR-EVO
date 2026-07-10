@@ -18,6 +18,7 @@ def test_config_save_and_load_roundtrip(tmp_path: Path) -> None:
     config.control.port = 9876
     config.hotkey.toggle = "ctrl+shift+space"
     config.hotkey.enabled = False
+    config.hotkey.mode = "hold"
     config.status.idle_symbol = "mic.badge.plus"
     config.status.reviewing_text = "确认文字"
     config.review.enabled = False
@@ -37,6 +38,7 @@ def test_config_save_and_load_roundtrip(tmp_path: Path) -> None:
     assert loaded.control.port == 9876
     assert loaded.hotkey.toggle == "ctrl+shift+space"
     assert loaded.hotkey.enabled is False
+    assert loaded.hotkey.mode == "hold"
     assert loaded.status.idle_symbol == "mic.badge.plus"
     assert loaded.status.reviewing_text == "确认文字"
     assert loaded.review.enabled is False

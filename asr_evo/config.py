@@ -4,6 +4,7 @@ import os
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 import tomli_w
 from dotenv import load_dotenv
@@ -19,6 +20,7 @@ class ControlConfig(BaseModel):
 class HotkeyConfig(BaseModel):
     enabled: bool = True
     toggle: str = "ctrl+alt+space"
+    mode: Literal["toggle", "hold"] = "toggle"
 
 
 class ASRConfig(BaseModel):
@@ -196,6 +198,7 @@ CONFIG_COMMENTS: dict[str, list[str]] = {
     "hotkey": [
         "Windows 内置全局快捷键配置；macOS 推荐继续用 Hammerspoon/skhd 调用 asr-evo-control。",
         "toggle 使用 ctrl+alt+space 这类写法。",
+        "mode = \"toggle\" 表示按一次切换；mode = \"hold\" 表示按下开始、释放停止。",
     ],
     "asr": [
         "语音识别服务配置。API Key 从 .env 的 DASHSCOPE_API_KEY 读取。",

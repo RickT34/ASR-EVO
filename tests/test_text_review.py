@@ -45,7 +45,9 @@ async def test_tk_text_reviewer_runs_dialog_module_in_child_process() -> None:
         style_id="通用润色",
         prompt_instruction="polish",
     )
-    assert calls[0][0] == (sys.executable, "-m", "asr_evo.ui.text_review")
+    assert calls[0][0] == (sys.executable, "-X", "utf8", "-m", "asr_evo.ui.text_review")
+    assert calls[0][1]["env"]["PYTHONUTF8"] == "1"
+    assert calls[0][1]["env"]["PYTHONIOENCODING"] == "utf-8"
     assert b'"type": "init"' in process.input
     assert "initial".encode() in process.input
 

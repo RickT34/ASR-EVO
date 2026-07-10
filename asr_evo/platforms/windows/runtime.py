@@ -71,7 +71,12 @@ class WindowsDictationRuntime:
         self.lifecycle.bind(self.tray.stop)
         tray.bind(self.tray)
         self.tray.set_review_enabled(config.review.enabled)
-        self.hotkey = WindowsHotkeyListener(config.hotkey, self._toggle_from_hotkey)
+        self.hotkey = WindowsHotkeyListener(
+            config.hotkey,
+            self._toggle_from_hotkey,
+            on_start=self._start_from_hotkey,
+            on_stop=self._stop_from_hotkey,
+        )
         self.controller.initialize_tray()
 
     def run(self) -> None:
@@ -102,6 +107,14 @@ class WindowsDictationRuntime:
     def _toggle_from_hotkey(self) -> None:
         with self._controller_lock:
             self.controller.toggle_dictation()
+
+    def _start_from_hotkey(self) -> None:
+        with self._controller_lock:
+            self.controller.start_dictation()
+
+    def _stop_from_hotkey(self) -> None:
+        with self._controller_lock:
+            self.controller.stop_dictation()
 
     def _stop_recording(self) -> ControlResult:
         if self.controller.state.state.value == "recording":

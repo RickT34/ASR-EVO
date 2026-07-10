@@ -6,9 +6,11 @@ port = 8765
 
 # Windows 内置全局快捷键配置；macOS 推荐继续用 Hammerspoon/skhd 调用 asr-evo-control。
 # toggle 使用 ctrl+alt+space 这类写法。
+# mode = "toggle" 表示按一次切换；mode = "hold" 表示按下开始、释放停止。
 [hotkey]
 enabled = true
 toggle = "ctrl+alt+space"
+mode = "toggle"
 
 # 语音识别服务配置。API Key 从 .env 的 DASHSCOPE_API_KEY 读取。
 [asr]

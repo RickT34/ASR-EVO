@@ -87,6 +87,12 @@ Windows 上对应命令是：
 .venv\Scripts\asr-evo.exe
 ```
 
+如果希望双击启动且不显示命令行窗口，使用 Windows GUI 入口：
+
+```powershell
+.venv\Scripts\asr-evow.exe
+```
+
 首次运行时，macOS 会请求麦克风权限。文本插入需要给运行该进程的终端或 Python 解释器授予“辅助功能”权限。Windows 运行时会显示系统托盘菜单，并按 `[hotkey]` 配置注册全局快捷键，默认是 `ctrl+alt+space`。
 
 托盘进程启动后，本机工具仍可通过 `asr-evo-control` 发送控制命令：
@@ -102,7 +108,7 @@ Windows 上对应命令是：
 
 1. 先运行 `.venv/bin/asr-evo`，让状态栏托盘进程保持常驻。
 2. 把光标放到任意文本输入框。
-3. macOS 用外部快捷键工具绑定 `.venv/bin/asr-evo-control toggle`，或分别绑定 `start` / `stop`；Windows 可直接按 `[hotkey].toggle`。
+3. macOS 用外部快捷键工具绑定 `.venv/bin/asr-evo-control toggle`，或分别绑定 `start` / `stop`；Windows 可直接按 `[hotkey].toggle`。如果 `[hotkey].mode = "hold"`，按下组合键开始录音，释放后停止。
 4. 停止录音后等待转写、润色和插入。
 
 托盘菜单会显示当前本机控制端点，例如 `127.0.0.1:8765`。如果修改 `[control].port` 并点击“重新加载配置”，托盘进程会先尝试绑定新端口；绑定成功后才会保存和切换到新配置。
@@ -140,6 +146,7 @@ port = 8765
 [hotkey]
 enabled = true
 toggle = "ctrl+alt+space"
+mode = "toggle"
 
 [asr]
 model = "qwen3-asr-flash"

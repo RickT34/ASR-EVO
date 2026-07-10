@@ -65,7 +65,7 @@ external trigger
 
 When review is enabled, the controller sends `TextReviewer` the raw transcript, current polished text, selected prompt, available styles, and the rendered context. The reviewer UI may ask the controller-owned preview callback to re-run polishing with a different or edited prompt, or ask the save callback to persist the prompt file and current-app style binding; the UI does not call providers or write config files directly. Confirmed text is stored as `user_edited_text` and inserted. The last AI preview remains `final_text`, and the selected preview style is stored as `style`. If review is disabled, `user_edited_text` is initialized with the LLM-polished text. Polishing context always renders `user_edited_text`, so the field means "the text the user ultimately accepted".
 
-The localhost control path is intentionally small: commands are `start`, `stop`, `toggle`, and `status`, serialized as one JSON request per TCP connection. The server listens only on `127.0.0.1`. On macOS, external hotkey tools own key capture and call `asr-evo-control`. On Windows, the runtime can also register the configured `[hotkey].toggle` global hotkey directly.
+The localhost control path is intentionally small: commands are `start`, `stop`, `toggle`, and `status`, serialized as one JSON request per TCP connection. The server listens only on `127.0.0.1`. On macOS, external hotkey tools own key capture and call `asr-evo-control`. On Windows, the runtime can also register the configured `[hotkey].toggle` global hotkey directly, either as a toggle or hold-to-record trigger.
 
 ## Prompt Styles
 
@@ -97,7 +97,7 @@ The desktop runtime owns long-lived platform services:
 
 The AppKit main thread runs the tray and platform UI work. The control server and async provider calls run on a dedicated asyncio loop thread; incoming control commands are dispatched back to the main thread before they touch frontmost-app or tray state. `DesktopDictationController` prevents overlapping dictation runs by switching state synchronously before scheduling the pipeline.
 
-On Windows, `pystray` owns the notification-area event loop and `pynput` owns global key capture. Both call the same `DesktopDictationController` actions used by the control endpoint; platform code must not duplicate prompt selection, persistence, or review rules.
+On Windows, `pystray` owns the notification-area event loop and `pynput` owns global key capture. Both toggle and hold-to-record hotkeys call the same `DesktopDictationController` actions used by the control endpoint; platform code must not duplicate prompt selection, persistence, or review rules. The `asr-evow` GUI entry point uses the same runtime without opening a console window.
 
 Config reload is two-phase for runtime-sensitive fields. For example, when `[control].port` changes, `MacOSDictationRuntime` binds the replacement `DictationControlServer` before the controller commits the new config or saves `config.toml`. If the new port is unavailable, the old runtime state and persisted config stay intact.
 
