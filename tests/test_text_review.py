@@ -13,7 +13,12 @@ from asr_evo.core.ports import (
     TextReviewStyle,
 )
 from asr_evo.ui import text_review
-from asr_evo.ui.text_review import TkTextReviewer, configure_stdio_encoding, parse_review_process_result
+from asr_evo.ui.text_review import (
+    TkTextReviewer,
+    configure_stdio_encoding,
+    parse_review_process_result,
+    review_confirmation_ready,
+)
 
 
 async def test_tk_text_reviewer_runs_dialog_module_in_child_process() -> None:
@@ -137,6 +142,12 @@ def test_parse_review_process_result_returns_none_on_cancel() -> None:
 def test_parse_review_process_result_raises_stderr_on_failure() -> None:
     with pytest.raises(RuntimeError, match="tk failed"):
         parse_review_process_result(1, b"", b"tk failed")
+
+
+def test_review_confirmation_waits_for_pending_preview_work() -> None:
+    assert review_confirmation_ready(io_busy=False, preview_scheduled=False) is True
+    assert review_confirmation_ready(io_busy=True, preview_scheduled=False) is False
+    assert review_confirmation_ready(io_busy=False, preview_scheduled=True) is False
 
 
 def test_configure_stdio_encoding_reconfigures_all_standard_streams(monkeypatch) -> None:

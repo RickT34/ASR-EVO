@@ -236,6 +236,10 @@ def parse_review_process_error(returncode: int | None, stderr: bytes) -> str:
     return message
 
 
+def review_confirmation_ready(*, io_busy: bool, preview_scheduled: bool) -> bool:
+    return not io_busy and not preview_scheduled
+
+
 def show_text_review(request: TextReviewRequest) -> TextReviewResult | None:
     import tkinter as tk
     from tkinter import ttk
@@ -330,6 +334,8 @@ def show_text_review(request: TextReviewRequest) -> TextReviewResult | None:
         state = "disabled" if value else "normal"
         save_button.configure(state=state)
         style_box.configure(state="disabled" if value else ("readonly" if request.styles else "disabled"))
+        confirm_disabled = value or bool(prompt_after_id["value"])
+        ok_button.configure(state="disabled" if confirm_disabled else "normal")
 
     def request_preview(event: object | None = None) -> str:
         if io_busy["value"]:
@@ -357,7 +363,13 @@ def show_text_review(request: TextReviewRequest) -> TextReviewResult | None:
     def schedule_preview() -> None:
         if prompt_after_id["value"]:
             root.after_cancel(prompt_after_id["value"])
-        prompt_after_id["value"] = root.after(600, request_preview)
+        ok_button.configure(state="disabled")
+
+        def run_preview() -> None:
+            prompt_after_id["value"] = ""
+            request_preview()
+
+        prompt_after_id["value"] = root.after(600, run_preview)
 
     def request_save(event: object | None = None) -> str:
         if io_busy["value"]:
@@ -461,6 +473,11 @@ def show_text_review(request: TextReviewRequest) -> TextReviewResult | None:
         return "break"
 
     def confirm(event: object | None = None) -> str:
+        if not review_confirmation_ready(
+            io_busy=io_busy["value"],
+            preview_scheduled=bool(prompt_after_id["value"]),
+        ):
+            return "break"
         style = selected_style()
         prompt_instruction = prompt_box.get("1.0", "end-1c")
         polished_text = polished_box.get("1.0", "end-1c")

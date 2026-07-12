@@ -44,3 +44,17 @@ def test_config_save_and_load_roundtrip(tmp_path: Path) -> None:
     assert loaded.review.enabled is False
     assert loaded.debug.dump_remote_requests is True
     assert loaded.debug.max_request_value_chars == 99
+
+
+def test_config_reload_reads_updated_dotenv_key(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("DASHSCOPE_API_KEY", raising=False)
+    dotenv_path = tmp_path / ".env"
+    dotenv_path.write_text("DASHSCOPE_API_KEY=first-key\n", encoding="utf-8")
+    first = AppConfig.load()
+    dotenv_path.write_text("DASHSCOPE_API_KEY=second-key\n", encoding="utf-8")
+
+    second = AppConfig.load()
+
+    assert first.api_key() == "first-key"
+    assert second.api_key() == "second-key"

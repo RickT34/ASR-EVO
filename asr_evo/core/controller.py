@@ -47,7 +47,7 @@ class RuntimeState:
     current_error: ErrorFeedback | None = None
 
 
-@dataclass(frozen=True)
+@dataclass
 class DesktopControllerDependencies:
     tray: StatusTray
     recorder: DesktopRecorder
@@ -70,6 +70,7 @@ class DesktopControllerDependencies:
 @dataclass(frozen=True)
 class RuntimeConfigApplication:
     styles: StyleRegistry
+    selected_style_id: str
 
 
 class DesktopDictationController:
@@ -197,6 +198,9 @@ class DesktopDictationController:
         self.dependencies.tray.set_state(self.state.state.value, detail)
 
     def reload_config(self) -> None:
+        if self.state.state not in {DictationState.IDLE, DictationState.ERROR}:
+            self.dependencies.tray.set_state(self.state.state.value, "听写进行中，暂不能重新加载配置")
+            return
         self.apply_config(self.dependencies.config_loader(), persist=False)
         self.dependencies.tray.set_state(self.state.state.value, "已重新加载配置")
 
@@ -284,13 +288,14 @@ class DesktopDictationController:
         self.dependencies.tray.set_app_binding_summary(self.style_bindings.summary_for(app))
 
     def apply_config(self, config: AppConfig, *, persist: bool = False) -> None:
+        applied = prepare_runtime_config(config, self.style_bindings.current_style_id)
         if self.dependencies.on_config_applied is not None:
             self.dependencies.on_config_applied(config)
+        apply_runtime_config(config, applied, self.dependencies, self.style_bindings)
         self.config = config
+        self.styles = applied.styles
         if persist:
             config.save(self.dependencies.config_path)
-        applied = apply_runtime_config(config, self.dependencies, self.style_bindings)
-        self.styles = applied.styles
         self._sync_style_menu()
         self.update_app_binding_summary()
         self.refresh_input_devices()
@@ -316,6 +321,7 @@ class DesktopDictationController:
         self.dependencies.lifecycle.quit()
 
     async def run_pipeline_once(self) -> None:
+        raw_text_saved = False
         try:
             style = self.styles.get(self.style_bindings.current_style_id)
             pipeline = DictationPipeline(
@@ -344,16 +350,19 @@ class DesktopDictationController:
                 return
             _StateTrackingTray(self).set_state(DictationState.INSERTING.value)
             result = review_service.apply_result(result, review_result)
-            await self.dependencies.inserter.insert(review_result.text)
-            self.dependencies.history_store.add(result.record, audio_seconds=result.audio_seconds)
-            self.refresh_menu_summaries()
+            try:
+                await self.dependencies.inserter.insert(review_result.text)
+            finally:
+                self.dependencies.history_store.add(result.record, audio_seconds=result.audio_seconds)
+                raw_text_saved = True
+                self.refresh_menu_summaries()
         except DictationPipelineError as exc:
             if exc.record is not None:
                 self.dependencies.history_store.add(exc.record, audio_seconds=exc.audio_seconds)
                 self.refresh_menu_summaries()
             self._show_error(exc, raw_text_saved=exc.record is not None)
         except Exception as exc:
-            self._show_error(exc)
+            self._show_error(exc, raw_text_saved=raw_text_saved)
         finally:
             if self.state.state != DictationState.ERROR:
                 _StateTrackingTray(self).set_state(DictationState.IDLE.value)
@@ -361,6 +370,20 @@ class DesktopDictationController:
     async def close_clients(self) -> None:
         await _maybe_aclose(self.dependencies.asr_provider)
         await _maybe_aclose(self.dependencies.llm_provider)
+
+    def replace_providers(
+        self,
+        asr_provider: ASRProvider,
+        llm_provider: LLMProvider,
+    ) -> concurrent.futures.Future[None]:
+        previous_asr = self.dependencies.asr_provider
+        previous_llm = self.dependencies.llm_provider
+        self.dependencies.asr_provider = asr_provider
+        self.dependencies.llm_provider = llm_provider
+        return asyncio.run_coroutine_threadsafe(
+            _close_clients(previous_asr, previous_llm),
+            self.loop,
+        )
 
     def _sync_style_menu(self) -> None:
         self.dependencies.tray.set_styles(self.styles.all(), self.style_bindings.current_style_id)
@@ -407,18 +430,35 @@ async def _maybe_aclose(client: Any) -> None:
         await result
 
 
+async def _close_clients(asr_provider: ASRProvider, llm_provider: LLMProvider) -> None:
+    await _maybe_aclose(asr_provider)
+    await _maybe_aclose(llm_provider)
+
+
+def prepare_runtime_config(
+    config: AppConfig,
+    current_style_id: str,
+) -> RuntimeConfigApplication:
+    styles = StyleRegistry(prompts_dir=config.style.prompts_dir)
+    default_style_id = (
+        config.style.mode if styles.has(config.style.mode) else styles.default_style_id()
+    )
+    selected_style_id = current_style_id if styles.has(current_style_id) else default_style_id
+    return RuntimeConfigApplication(styles=styles, selected_style_id=selected_style_id)
+
+
 def apply_runtime_config(
     config: AppConfig,
+    applied: RuntimeConfigApplication,
     dependencies: DesktopControllerDependencies,
     style_bindings: StyleBindingService,
-) -> RuntimeConfigApplication:
+) -> None:
     dependencies.context_store.ttl = timedelta(seconds=config.context.ttl_seconds)
     dependencies.context_store.max_items = config.context.max_items
     dependencies.context_store.max_chars = config.context.max_chars
     dependencies.context_store.scope = config.context.scope
-    styles = StyleRegistry(prompts_dir=config.style.prompts_dir)
-    style_bindings.configure(config, styles=styles)
+    style_bindings.configure(config, styles=applied.styles)
+    style_bindings.current_style_id = applied.selected_style_id
     dependencies.tray.set_status_config(config.status)
     dependencies.tray.set_review_enabled(config.review.enabled)
     dependencies.recorder.set_input_device(config.audio.input_device)
-    return RuntimeConfigApplication(styles=styles)

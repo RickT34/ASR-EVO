@@ -128,6 +128,37 @@ async def test_controller_inserts_directly_when_review_disabled(tmp_path: Path) 
     assert records[0]["user_edited_text"] == "final:raw"
 
 
+async def test_controller_preserves_history_when_text_insertion_fails(tmp_path: Path) -> None:
+    controller, deps = _make_controller(tmp_path)
+    deps.inserter.error = RuntimeError("pasteboard insertion failed")
+    deps.recorder.audio_path.write_bytes(b"audio")
+
+    await controller.run_pipeline_once()
+
+    records = deps.history_store.recent()
+    assert len(records) == 1
+    assert records[0]["raw_text"] == "raw"
+    assert records[0]["final_text"] == "final:raw"
+    assert controller.state.state == DictationState.ERROR
+    assert deps.tray.error_feedback.raw_text_saved is True
+
+
+async def test_controller_replaces_providers_and_closes_previous_clients(tmp_path: Path) -> None:
+    controller, deps = _make_controller(tmp_path)
+    previous_asr = deps.asr_provider
+    previous_llm = deps.llm_provider
+    next_asr = FakeASR()
+    next_llm = FakeLLM()
+
+    close_future = controller.replace_providers(next_asr, next_llm)
+    await asyncio.wrap_future(close_future)
+
+    assert controller.dependencies.asr_provider is next_asr
+    assert controller.dependencies.llm_provider is next_llm
+    assert previous_asr.closed is True
+    assert previous_llm.closed is True
+
+
 def test_controller_selects_style_and_binds_current_app(tmp_path: Path) -> None:
     controller, deps = _make_controller(tmp_path)
 
@@ -202,6 +233,26 @@ def test_controller_does_not_commit_config_when_runtime_rejects_it(tmp_path: Pat
     assert not (tmp_path / "config.toml").exists()
 
 
+def test_controller_validates_config_before_runtime_or_disk_changes(tmp_path: Path) -> None:
+    controller, deps = _make_controller(tmp_path)
+    config = controller.config.model_copy(deep=True)
+    config.style.prompts_dir = str(tmp_path / "missing-prompts")
+    callback_called = False
+
+    def apply_runtime(config: AppConfig) -> None:
+        nonlocal callback_called
+        callback_called = True
+
+    controller.dependencies.on_config_applied = apply_runtime
+
+    with pytest.raises(RuntimeError, match="No prompt files found"):
+        controller.apply_config(config, persist=True)
+
+    assert callback_called is False
+    assert controller.config.style.prompts_dir != config.style.prompts_dir
+    assert not (tmp_path / "config.toml").exists()
+
+
 def test_controller_handles_external_control_commands(tmp_path: Path) -> None:
     controller, deps = _make_controller(tmp_path)
     controller.state.state = DictationState.RECORDING
@@ -218,6 +269,24 @@ def test_controller_handles_external_control_commands(tmp_path: Path) -> None:
     unsupported = controller.handle_control_command("missing")
     assert unsupported.ok is False
     assert unsupported.error == "unsupported command: missing"
+
+
+def test_controller_does_not_reload_config_while_dictation_is_active(tmp_path: Path) -> None:
+    controller, deps = _make_controller(tmp_path)
+    controller.state.state = DictationState.POLISHING
+    loaded = False
+
+    def load_config() -> AppConfig:
+        nonlocal loaded
+        loaded = True
+        return AppConfig()
+
+    controller.dependencies.config_loader = load_config
+
+    controller.reload_config()
+
+    assert loaded is False
+    assert deps.tray.states[-1] == ("polishing", "听写进行中，暂不能重新加载配置")
 
 
 def test_controller_toggles_review_and_persists_config(tmp_path: Path) -> None:
@@ -390,16 +459,20 @@ class FakeRecorder:
 
 
 class FakeASR:
+    def __init__(self) -> None:
+        self.closed = False
+
     async def transcribe(self, audio: AudioClip) -> Transcript:
         return Transcript(text="raw")
 
     async def aclose(self) -> None:
-        pass
+        self.closed = True
 
 
 class FakeLLM:
     def __init__(self) -> None:
         self.calls: list[tuple[str, str, str]] = []
+        self.closed = False
 
     async def polish(self, raw_text: str, context: str, prompt_instruction: str) -> str:
         self.calls.append((raw_text, context, prompt_instruction))
@@ -408,14 +481,17 @@ class FakeLLM:
         return f"final:{raw_text}"
 
     async def aclose(self) -> None:
-        pass
+        self.closed = True
 
 
 class FakeInserter:
     def __init__(self) -> None:
         self.text = None
+        self.error: Exception | None = None
 
     async def insert(self, text: str) -> None:
+        if self.error is not None:
+            raise self.error
         self.text = text
 
 

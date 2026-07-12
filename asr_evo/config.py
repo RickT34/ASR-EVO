@@ -7,8 +7,8 @@ from pathlib import Path
 from typing import Literal
 
 import tomli_w
-from dotenv import load_dotenv
-from pydantic import BaseModel, Field
+from dotenv import dotenv_values
+from pydantic import BaseModel, Field, PrivateAttr
 
 from asr_evo.core.context import ContextStore
 
@@ -88,6 +88,8 @@ class DebugConfig(BaseModel):
 
 
 class AppConfig(BaseModel):
+    _api_key: str | None = PrivateAttr(default=None)
+
     control: ControlConfig = ControlConfig()
     hotkey: HotkeyConfig = HotkeyConfig()
     asr: ASRConfig = ASRConfig()
@@ -101,15 +103,17 @@ class AppConfig(BaseModel):
 
     @classmethod
     def load(cls, path: str | Path = "config.toml") -> "AppConfig":
-        load_dotenv()
         config_path = Path(path)
         data = {}
         if config_path.exists():
             data = tomllib.loads(config_path.read_text(encoding="utf-8"))
-        return cls.model_validate(data)
+        config = cls.model_validate(data)
+        dotenv_key = dotenv_values(".env").get(API_KEY_ENV)
+        config._api_key = os.getenv(API_KEY_ENV) or (str(dotenv_key) if dotenv_key else None)
+        return config
 
     def api_key(self) -> str | None:
-        return os.getenv(API_KEY_ENV)
+        return self._api_key or os.getenv(API_KEY_ENV)
 
     def save(self, path: str | Path = "config.toml") -> None:
         config_path = Path(path)

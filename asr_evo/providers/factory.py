@@ -9,6 +9,21 @@ from .openai_provider import (
 )
 
 
+def create_providers(
+    config: AppConfig,
+) -> tuple[OpenAIChatCompletionsASRProvider, OpenAIChatCompletionsLLMProvider]:
+    return create_asr_provider(config), create_llm_provider(config)
+
+
+def provider_config_changed(current: AppConfig, updated: AppConfig) -> bool:
+    return (current.asr, current.llm, current.debug, current.api_key()) != (
+        updated.asr,
+        updated.llm,
+        updated.debug,
+        updated.api_key(),
+    )
+
+
 def create_llm_provider(config: AppConfig) -> OpenAIChatCompletionsLLMProvider:
     api_key = config.api_key()
     if not api_key:

@@ -17,7 +17,7 @@ from asr_evo.platforms.windows.hotkey import WindowsHotkeyListener
 from asr_evo.platforms.windows.inserter import WindowsClipboard, WindowsTextInserter
 from asr_evo.platforms.windows.permissions import WindowsPermissions
 from asr_evo.platforms.windows.tray import WindowsStatusTray
-from asr_evo.providers.factory import create_asr_provider, create_llm_provider
+from asr_evo.providers.factory import create_providers, provider_config_changed
 from asr_evo.storage.history import HistoryStore
 from asr_evo.ui.text_review import TkTextReviewer
 
@@ -32,6 +32,7 @@ class WindowsDictationRuntime:
         self._controller_lock = threading.RLock()
         self.lifecycle = WindowsAppLifecycle()
         tray = UnboundStatusTray()
+        asr_provider, llm_provider = create_providers(config)
         dependencies = DesktopControllerDependencies(
             tray=tray,
             recorder=SoundDeviceRecorder(
@@ -39,8 +40,8 @@ class WindowsDictationRuntime:
                 channels=AUDIO_DEFAULTS.channels,
                 input_device=config.audio.input_device,
             ),
-            asr_provider=create_asr_provider(config),
-            llm_provider=create_llm_provider(config),
+            asr_provider=asr_provider,
+            llm_provider=llm_provider,
             inserter=WindowsTextInserter(restore_delay_ms=INSERT_DEFAULTS.restore_delay_ms),
             text_reviewer=TkTextReviewer(),
             app_provider=WindowsFrontmostAppProvider(),
@@ -132,6 +133,8 @@ class WindowsDictationRuntime:
             self.control_server = next_server
             self.tray.set_control_label(self.control_server.address)
         self.hotkey.apply_config(config.hotkey)
+        if provider_config_changed(self.controller.config, config):
+            self.controller.replace_providers(*create_providers(config))
 
     def _run_loop(self) -> None:
         asyncio.set_event_loop(self.loop)

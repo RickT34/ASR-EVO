@@ -30,7 +30,7 @@ from asr_evo.platforms.macos.frontmost import MacOSFrontmostAppProvider
 from asr_evo.platforms.macos.inserter import MacOSTextInserter
 from asr_evo.platforms.macos.permissions import MacOSPermissions
 from asr_evo.platforms.macos.tray import MacOSStatusTray
-from asr_evo.providers.factory import create_asr_provider, create_llm_provider
+from asr_evo.providers.factory import create_providers, provider_config_changed
 from asr_evo.storage.history import HistoryStore
 from asr_evo.ui.text_review import TkTextReviewer
 
@@ -45,6 +45,7 @@ class MacOSDictationRuntime:
         self.loop = asyncio.new_event_loop()
         self.loop_thread = threading.Thread(target=self._run_loop, name="asr-evo-async", daemon=True)
         tray = UnboundStatusTray()
+        asr_provider, llm_provider = create_providers(config)
         dependencies = DesktopControllerDependencies(
             tray=tray,
             recorder=SoundDeviceRecorder(
@@ -52,8 +53,8 @@ class MacOSDictationRuntime:
                 channels=AUDIO_DEFAULTS.channels,
                 input_device=config.audio.input_device,
             ),
-            asr_provider=create_asr_provider(config),
-            llm_provider=create_llm_provider(config),
+            asr_provider=asr_provider,
+            llm_provider=llm_provider,
             inserter=MacOSTextInserter(
                 mode=INSERT_DEFAULTS.mode,
                 fallback=INSERT_DEFAULTS.fallback,
@@ -122,16 +123,17 @@ class MacOSDictationRuntime:
         return ControlResult(ok=True, state=self.controller.state.state.value)
 
     def apply_config(self, config: AppConfig) -> None:
-        if self.control_server.port == config.control.port:
-            return
-        next_server = DictationControlServer(
-            port=config.control.port,
-            handler=self._handle_control_command,
-        )
-        next_server.start(self.loop)
-        self.control_server.stop(self.loop)
-        self.control_server = next_server
-        self.tray.set_control_label(self.control_server.address)
+        if self.control_server.port != config.control.port:
+            next_server = DictationControlServer(
+                port=config.control.port,
+                handler=self._handle_control_command,
+            )
+            next_server.start(self.loop)
+            self.control_server.stop(self.loop)
+            self.control_server = next_server
+            self.tray.set_control_label(self.control_server.address)
+        if provider_config_changed(self.controller.config, config):
+            self.controller.replace_providers(*create_providers(config))
 
     def _run_loop(self) -> None:
         asyncio.set_event_loop(self.loop)
