@@ -89,6 +89,8 @@ class DebugConfig(BaseModel):
 
 class AppConfig(BaseModel):
     _api_key: str | None = PrivateAttr(default=None)
+    _asr_api_key: str | None = PrivateAttr(default=None)
+    _llm_api_key: str | None = PrivateAttr(default=None)
 
     control: ControlConfig = ControlConfig()
     hotkey: HotkeyConfig = HotkeyConfig()
@@ -108,12 +110,28 @@ class AppConfig(BaseModel):
         if config_path.exists():
             data = tomllib.loads(config_path.read_text(encoding="utf-8"))
         config = cls.model_validate(data)
-        dotenv_key = dotenv_values(".env").get(API_KEY_ENV)
-        config._api_key = os.getenv(API_KEY_ENV) or (str(dotenv_key) if dotenv_key else None)
+        dotenv = dotenv_values(".env")
+        config._api_key = _read_api_key(API_KEY_ENV, dotenv)
+        config._asr_api_key = _read_api_key(
+            ASR_API_KEY_ENV,
+            dotenv,
+            fallback=config._api_key,
+        )
+        config._llm_api_key = _read_api_key(
+            LLM_API_KEY_ENV,
+            dotenv,
+            fallback=config._api_key,
+        )
         return config
 
     def api_key(self) -> str | None:
         return self._api_key or os.getenv(API_KEY_ENV)
+
+    def asr_api_key(self) -> str | None:
+        return self._asr_api_key or os.getenv(ASR_API_KEY_ENV) or self.api_key()
+
+    def llm_api_key(self) -> str | None:
+        return self._llm_api_key or os.getenv(LLM_API_KEY_ENV) or self.api_key()
 
     def save(self, path: str | Path = "config.toml") -> None:
         config_path = Path(path)
@@ -161,6 +179,18 @@ def _nested_table_key(line: str, section: str) -> str:
 
 
 API_KEY_ENV = "DASHSCOPE_API_KEY"
+ASR_API_KEY_ENV = "ASR_API_KEY"
+LLM_API_KEY_ENV = "LLM_API_KEY"
+
+
+def _read_api_key(
+    name: str,
+    dotenv: dict[str, str | None],
+    *,
+    fallback: str | None = None,
+) -> str | None:
+    dotenv_value = dotenv.get(name)
+    return os.getenv(name) or (str(dotenv_value) if dotenv_value else None) or fallback
 
 
 @dataclass(frozen=True)
@@ -200,15 +230,17 @@ CONFIG_COMMENTS: dict[str, list[str]] = {
         "port 可改成其他本机端口；可用命令：asr-evo-control start | stop | toggle | status。",
     ],
     "hotkey": [
-        "Windows 内置全局快捷键配置；macOS 推荐继续用 Hammerspoon/skhd 调用 asr-evo-control。",
+        "macOS 和 Windows 内置全局快捷键配置，也可用外部工具调用 asr-evo-control。",
         "toggle 使用 ctrl+alt+space 这类写法。",
         "mode = \"toggle\" 表示按一次切换；mode = \"hold\" 表示按下开始、释放停止。",
     ],
     "asr": [
-        "语音识别服务配置。API Key 从 .env 的 DASHSCOPE_API_KEY 读取。",
+        "语音识别服务配置。API Key 优先从 .env 的 ASR_API_KEY 读取。",
+        "未设置时兼容回退到 DASHSCOPE_API_KEY。",
     ],
     "llm": [
-        "文本润色模型配置。API Key 从 .env 的 DASHSCOPE_API_KEY 读取。",
+        "文本润色模型配置。API Key 优先从 .env 的 LLM_API_KEY 读取。",
+        "未设置时兼容回退到 DASHSCOPE_API_KEY。",
     ],
     "style": [
         "提示词风格配置。所有风格都来自 prompts_dir 目录中的 .md 文件。",

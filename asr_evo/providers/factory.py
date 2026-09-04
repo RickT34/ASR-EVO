@@ -1,6 +1,12 @@
 from __future__ import annotations
 
-from asr_evo.config import API_KEY_ENV, PROVIDER_DEFAULTS, AppConfig
+from asr_evo.config import (
+    API_KEY_ENV,
+    ASR_API_KEY_ENV,
+    LLM_API_KEY_ENV,
+    PROVIDER_DEFAULTS,
+    AppConfig,
+)
 from asr_evo.providers.request_debug import RemoteRequestDebugOptions
 
 from .openai_provider import (
@@ -16,18 +22,28 @@ def create_providers(
 
 
 def provider_config_changed(current: AppConfig, updated: AppConfig) -> bool:
-    return (current.asr, current.llm, current.debug, current.api_key()) != (
+    return (
+        current.asr,
+        current.llm,
+        current.debug,
+        current.asr_api_key(),
+        current.llm_api_key(),
+    ) != (
         updated.asr,
         updated.llm,
         updated.debug,
-        updated.api_key(),
+        updated.asr_api_key(),
+        updated.llm_api_key(),
     )
 
 
 def create_llm_provider(config: AppConfig) -> OpenAIChatCompletionsLLMProvider:
-    api_key = config.api_key()
+    api_key = config.llm_api_key()
     if not api_key:
-        raise RuntimeError(f"Missing API key in ${API_KEY_ENV}. Add it to .env.")
+        raise RuntimeError(
+            f"Missing LLM API key in ${LLM_API_KEY_ENV} "
+            f"(fallback: ${API_KEY_ENV}). Add it to .env."
+        )
     return OpenAIChatCompletionsLLMProvider(
         api_key=api_key,
         base_url=config.llm.base_url,
@@ -38,9 +54,12 @@ def create_llm_provider(config: AppConfig) -> OpenAIChatCompletionsLLMProvider:
 
 
 def create_asr_provider(config: AppConfig) -> OpenAIChatCompletionsASRProvider:
-    api_key = config.api_key()
+    api_key = config.asr_api_key()
     if not api_key:
-        raise RuntimeError(f"Missing API key in ${API_KEY_ENV}. Add it to .env.")
+        raise RuntimeError(
+            f"Missing ASR API key in ${ASR_API_KEY_ENV} "
+            f"(fallback: ${API_KEY_ENV}). Add it to .env."
+        )
     return OpenAIChatCompletionsASRProvider(
         api_key=api_key,
         model=config.asr.model,

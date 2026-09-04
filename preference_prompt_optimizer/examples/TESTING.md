@@ -115,9 +115,9 @@ To run the real LLM API integration test:
 .venv/bin/python -m pytest tests/preference_prompt_optimizer -m integration
 ```
 
-The optimizer CLI and integration test use `config.toml` plus the normal
-`DASHSCOPE_API_KEY` environment variable. Pass `--model` to the CLI only when
-you want to temporarily override `config.llm.model`.
+The optimizer CLI and integration test use `config.toml` plus `LLM_API_KEY`,
+with `DASHSCOPE_API_KEY` as a backward-compatible fallback. Pass `--model` to
+the CLI only when you want to temporarily override `config.llm.model`.
 
 For repo-wide verification:
 

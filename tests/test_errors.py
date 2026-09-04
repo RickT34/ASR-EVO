@@ -6,11 +6,16 @@ from asr_evo.ui.menu import error_feedback_lines
 
 def test_feedback_from_missing_api_key_suggests_env_fix() -> None:
     feedback = feedback_from_exception(
-        RuntimeError("Missing API key in $DASHSCOPE_API_KEY. Add it to .env.")
+        RuntimeError(
+            "Missing ASR API key in $ASR_API_KEY "
+            "(fallback: $DASHSCOPE_API_KEY). Add it to .env."
+        )
     )
 
     assert feedback.title == "缺少 API Key"
-    assert "DASHSCOPE_API_KEY" in feedback.detail
+    assert "API Key" in feedback.detail
+    assert "ASR_API_KEY" in feedback.suggestion
+    assert "LLM_API_KEY" in feedback.suggestion
     assert ".env" in feedback.suggestion
     assert "技术细节" in feedback.copy_text()
 

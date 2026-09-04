@@ -29,6 +29,7 @@ asr_evo/
     macos/
       runtime.py            # orchestrates macOS services and core pipeline
       tray.py               # NSStatusItem menu
+      hotkey.py             # Quartz global hotkey registration
       inserter.py           # pasteboard/accessibility/unicode insertion
       frontmost.py          # frontmost app detection
       permissions.py        # macOS permission checks
@@ -45,10 +46,13 @@ asr_evo/
 ## Core Flow
 
 ```text
-external trigger
-  -> asr-evo-control start|stop|toggle
-  -> DictationControlServer
-  -> DesktopDictationController.start_dictation()
+global hotkey -----------------------------+
+                                           |
+asr-evo-control start|stop|toggle          |
+  -> DictationControlServer                |
+  +----------------------------------------+
+                                           v
+                     DesktopDictationController.start_dictation()
   -> DictationPipeline.run_once()
      -> Recorder.record_until_stopped()
      -> ASRProvider.transcribe(audio)
@@ -68,7 +72,7 @@ When review is enabled, the controller sends `TextReviewer` the raw transcript, 
 
 History actions reuse the same provider and review services. “重新转写并润色” rebuilds an `AudioClip` from archived metadata, calls ASR, then LLM and the optional review UI. “重新润色” starts from the stored raw transcript. Both update the existing row and never invoke `TextInserter`. Audio export is a platform `FileExporter` boundary so native save dialogs remain outside core logic.
 
-The localhost control path is intentionally small: commands are `start`, `stop`, `toggle`, and `status`, serialized as one JSON request per TCP connection. The server listens only on `127.0.0.1`. On macOS, external hotkey tools own key capture and call `asr-evo-control`. On Windows, the runtime can also register the configured `[hotkey].toggle` global hotkey directly, either as a toggle or hold-to-record trigger.
+The localhost control path is intentionally small: commands are `start`, `stop`, `toggle`, and `status`, serialized as one JSON request per TCP connection. The server listens only on `127.0.0.1`. Both desktop runtimes also register the configured `[hotkey].toggle` global hotkey directly, either as a toggle or hold-to-record trigger. External tools may continue to use `asr-evo-control`.
 
 ## Prompt Styles
 
@@ -96,13 +100,14 @@ The desktop runtime owns long-lived platform services:
 - OpenAI SDK clients
 - `ContextStore`
 - `HistoryStore`
+- macOS `MacOSHotkeyListener` when enabled
 - Windows `WindowsHotkeyListener` when enabled
 
 The AppKit main thread runs the tray and platform UI work. The control server and async provider calls run on a dedicated asyncio loop thread; incoming control commands are dispatched back to the main thread before they touch frontmost-app or tray state. `DesktopDictationController` prevents overlapping dictation runs by switching state synchronously before scheduling the pipeline.
 
-On Windows, `pystray` owns the notification-area event loop and `pynput` owns global key capture. Both toggle and hold-to-record hotkeys call the same `DesktopDictationController` actions used by the control endpoint; platform code must not duplicate prompt selection, persistence, or review rules. The `asr-evow` GUI entry point uses the same runtime without opening a console window.
+On macOS, a Quartz event tap attached to the AppKit main run loop owns global key capture. On Windows, `pystray` owns the notification-area event loop and `pynput` owns global key capture. Both toggle and hold-to-record hotkeys call the same `DesktopDictationController` actions used by the control endpoint; platform code must not duplicate prompt selection, persistence, or review rules. The `asr-evow` GUI entry point uses the same runtime without opening a console window.
 
-Config reload is two-phase for runtime-sensitive fields. For example, when `[control].port` changes, `MacOSDictationRuntime` binds the replacement `DictationControlServer` before the controller commits the new config or saves `config.toml`. If the new port is unavailable, the old runtime state and persisted config stay intact.
+Config reload is two-phase for runtime-sensitive fields. For example, when `[control].port` or `[hotkey]` changes, `MacOSDictationRuntime` starts the replacement service before stopping the previous one or allowing the controller to save `config.toml`. If the new port or hotkey is unavailable, the old runtime state and persisted config stay intact.
 
 ## Platform Boundaries
 
@@ -133,7 +138,7 @@ Windows support implements these ports with `pystray`, `pynput`, Tk clipboard ac
 `config.toml` exposes only user-facing knobs:
 
 - control port
-- Windows global hotkey
+- macOS and Windows global hotkeys
 - ASR/LLM model and base URL
 - prompt directory, default style, app bindings
 - context enabled/TTL/max items/max chars/scope

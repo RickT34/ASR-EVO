@@ -29,6 +29,7 @@ from asr_evo.core.ports import (
 )
 from asr_evo.core.tray_proxy import UnboundStatusTray
 from asr_evo.platforms.macos.frontmost import MacOSFrontmostAppProvider
+from asr_evo.platforms.macos.hotkey import MacOSHotkeyListener
 from asr_evo.platforms.macos.inserter import MacOSTextInserter
 from asr_evo.platforms.macos.permissions import MacOSPermissions
 from asr_evo.platforms.macos.tray import MacOSStatusTray
@@ -46,6 +47,7 @@ class MacOSDictationRuntime:
 
         self.loop = asyncio.new_event_loop()
         self.loop_thread = threading.Thread(target=self._run_loop, name="asr-evo-async", daemon=True)
+        self.lifecycle = MacOSAppLifecycle()
         tray = UnboundStatusTray()
         asr_provider, llm_provider = create_providers(config)
         dependencies = DesktopControllerDependencies(
@@ -70,7 +72,7 @@ class MacOSDictationRuntime:
             file_opener=MacOSFileOpener(),
             file_exporter=MacOSFileExporter(),
             permissions=MacOSPermissions(),
-            lifecycle=MacOSAppLifecycle(),
+            lifecycle=self.lifecycle,
             on_config_applied=self.apply_config,
         )
         self.controller = DesktopDictationController(
@@ -91,6 +93,8 @@ class MacOSDictationRuntime:
         )
         tray.bind(self.tray)
         self.tray.set_review_enabled(config.review.enabled)
+        self.hotkey = self._create_hotkey(config)
+        self.lifecycle.bind(self.hotkey.stop)
         self.controller.initialize_tray()
 
     def run(self) -> None:
@@ -101,6 +105,7 @@ class MacOSDictationRuntime:
         NSApplication.sharedApplication().setActivationPolicy_(NSApplicationActivationPolicyAccessory)
         self.controller.check_permissions()
         if self.controller.state.current_error is None:
+            self.hotkey.start()
             self.tray.set_state("idle")
         NSApp.run()
 
@@ -126,22 +131,50 @@ class MacOSDictationRuntime:
         return ControlResult(ok=True, state=self.controller.state.state.value)
 
     def apply_config(self, config: AppConfig) -> None:
-        if self.control_server.port != config.control.port:
-            next_server = DictationControlServer(
-                port=config.control.port,
-                handler=self._handle_control_command,
-            )
-            next_server.start(self.loop)
+        next_server = None
+        next_hotkey = None
+        next_providers = None
+        try:
+            if self.control_server.port != config.control.port:
+                next_server = DictationControlServer(
+                    port=config.control.port,
+                    handler=self._handle_control_command,
+                )
+                next_server.start(self.loop)
+            if self.hotkey.config != config.hotkey:
+                next_hotkey = self._create_hotkey(config)
+                next_hotkey.start()
+            if provider_config_changed(self.controller.config, config):
+                next_providers = create_providers(config)
+        except Exception:
+            if next_hotkey is not None:
+                next_hotkey.stop()
+            if next_server is not None:
+                next_server.stop(self.loop)
+            raise
+
+        if next_server is not None:
             self.control_server.stop(self.loop)
             self.control_server = next_server
             self.tray.set_control_label(self.control_server.address)
-        if provider_config_changed(self.controller.config, config):
-            self.controller.replace_providers(*create_providers(config))
+        if next_hotkey is not None:
+            self.hotkey.stop()
+            self.hotkey = next_hotkey
+            self.lifecycle.bind(self.hotkey.stop)
+        if next_providers is not None:
+            self.controller.replace_providers(*next_providers)
+
+    def _create_hotkey(self, config: AppConfig) -> MacOSHotkeyListener:
+        return MacOSHotkeyListener(
+            config.hotkey,
+            self.controller.toggle_dictation,
+            on_start=self.controller.start_dictation,
+            on_stop=self.controller.stop_dictation,
+        )
 
     def _run_loop(self) -> None:
         asyncio.set_event_loop(self.loop)
         self.loop.run_forever()
-
 
 class MacOSFileOpener(FileOpener):
     def open_path(self, path: Path) -> None:
@@ -173,9 +206,17 @@ class MacOSClipboard(Clipboard):
 
 
 class MacOSAppLifecycle(AppLifecycle):
+    def __init__(self) -> None:
+        self._before_quit = None
+
+    def bind(self, before_quit) -> None:
+        self._before_quit = before_quit
+
     def quit(self) -> None:
         from AppKit import NSApp
 
+        if self._before_quit is not None:
+            self._before_quit()
         NSApp.terminate_(None)
 
 

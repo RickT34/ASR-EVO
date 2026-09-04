@@ -46,10 +46,18 @@ def feedback_from_exception(exc: Exception, *, raw_text_saved: bool = False) -> 
         title = "缺少系统权限"
         detail = exc.detail
         suggestion = exc.suggestion or "请按当前平台要求授予必要权限后重启应用。"
-    elif "missing api key" in lower_message or "dashscope_api_key" in lower_message:
+    elif "api key" in lower_message and (
+        "missing" in lower_message
+        or "asr_api_key" in lower_message
+        or "llm_api_key" in lower_message
+        or "dashscope_api_key" in lower_message
+    ):
         title = "缺少 API Key"
-        detail = ".env 中没有读取到 DASHSCOPE_API_KEY。"
-        suggestion = "请在 .env 添加 DASHSCOPE_API_KEY=... 后重启应用，或重新加载配置。"
+        detail = ".env 中没有读取到对应服务的 API Key。"
+        suggestion = (
+            "请在 .env 添加 ASR_API_KEY 和 LLM_API_KEY；两者共用密钥时也可只设置 "
+            "DASHSCOPE_API_KEY。然后重启应用或重新加载配置。"
+        )
     elif "network error" in lower_message or "timed out" in lower_message or "timeout" in lower_message:
         title = "网络连接失败"
         detail = "连接 ASR/LLM 服务时失败或超时。"
@@ -57,7 +65,7 @@ def feedback_from_exception(exc: Exception, *, raw_text_saved: bool = False) -> 
     elif _has_status_code(lower_message, 401, 403):
         title = "服务鉴权失败"
         detail = "ASR/LLM 服务拒绝了当前请求。"
-        suggestion = "请检查 DASHSCOPE_API_KEY 是否正确、是否有模型权限或额度。"
+        suggestion = "请检查对应的 ASR_API_KEY 或 LLM_API_KEY 是否正确、是否有模型权限或额度。"
     elif _has_status_code(lower_message, 429):
         title = "请求过于频繁"
         detail = "服务端触发了限流。"

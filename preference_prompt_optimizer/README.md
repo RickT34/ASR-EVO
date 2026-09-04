@@ -58,7 +58,8 @@ The JSON output contains:
 - `report`: sample count, observed edit similarity, and deployment notes.
 
 The CLI loads `config.toml` by default and uses the same LLM configuration and
-`DASHSCOPE_API_KEY` environment variable as normal polishing. Use `--config` for
+`LLM_API_KEY` environment variable as normal polishing, with
+`DASHSCOPE_API_KEY` as a backward-compatible fallback. Use `--config` for
 another config file or `--model` to temporarily override `config.llm.model`.
 It reuses the project LLM provider factory, so OpenAI SDK behavior, request
 debugging, and API shape stay aligned with the normal polishing path.

@@ -48,6 +48,8 @@ def test_config_save_and_load_roundtrip(tmp_path: Path) -> None:
 
 def test_config_reload_reads_updated_dotenv_key(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("ASR_API_KEY", raising=False)
+    monkeypatch.delenv("LLM_API_KEY", raising=False)
     monkeypatch.delenv("DASHSCOPE_API_KEY", raising=False)
     dotenv_path = tmp_path / ".env"
     dotenv_path.write_text("DASHSCOPE_API_KEY=first-key\n", encoding="utf-8")
@@ -58,3 +60,22 @@ def test_config_reload_reads_updated_dotenv_key(tmp_path: Path, monkeypatch) -> 
 
     assert first.api_key() == "first-key"
     assert second.api_key() == "second-key"
+    assert second.asr_api_key() == "second-key"
+    assert second.llm_api_key() == "second-key"
+
+
+def test_config_loads_separate_provider_keys(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("ASR_API_KEY", raising=False)
+    monkeypatch.delenv("LLM_API_KEY", raising=False)
+    monkeypatch.delenv("DASHSCOPE_API_KEY", raising=False)
+    (tmp_path / ".env").write_text(
+        "ASR_API_KEY=asr-key\nLLM_API_KEY=llm-key\nDASHSCOPE_API_KEY=shared-key\n",
+        encoding="utf-8",
+    )
+
+    config = AppConfig.load()
+
+    assert config.asr_api_key() == "asr-key"
+    assert config.llm_api_key() == "llm-key"
+    assert config.api_key() == "shared-key"
