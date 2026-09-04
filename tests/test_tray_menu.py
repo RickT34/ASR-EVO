@@ -80,6 +80,8 @@ def test_history_menu_records_format_titles_and_previews() -> None:
                 "raw_text": " raw   text ",
                 "final_text": " polished   text ",
                 "user_edited_text": " user   edit ",
+                "has_audio": True,
+                "audio_seconds": 3.25,
             }
         ]
     )
@@ -89,6 +91,28 @@ def test_history_menu_records_format_titles_and_previews() -> None:
     assert records[0].raw_preview == "原始：raw text"
     assert records[0].final_preview == "润色：polished text"
     assert records[0].user_edit_preview == "修订：user edit"
+    assert records[0].audio_preview == "录音：已保存（3.2 秒）"
+    assert records[0].can_retranscribe is True
+    assert records[0].can_repolish is True
+
+
+def test_history_title_marks_saved_audio_for_retranscription() -> None:
+    records = history_menu_records(
+        [
+            {
+                "id": "failed",
+                "app_name": "Notes",
+                "raw_text": "",
+                "final_text": "",
+                "user_edited_text": "",
+                "has_audio": True,
+            }
+        ]
+    )
+
+    assert records[0].title == "Notes: 转写失败待重试"
+    assert records[0].can_retranscribe is True
+    assert records[0].can_repolish is False
 
 
 def test_status_presentation_uses_configured_symbol_and_text() -> None:
@@ -107,6 +131,9 @@ def test_menu_command_titles_are_shared_for_platform_renderers() -> None:
     assert command_title(MenuCommand.REVEAL_PROMPTS) == "打开提示词文件夹"
     assert command_title(MenuCommand.COPY_HISTORY_FINAL) == "复制润色结果"
     assert command_title(MenuCommand.COPY_HISTORY_USER_EDIT) == "复制用户修订"
+    assert command_title(MenuCommand.RETRANSCRIBE_HISTORY) == "重新转写并润色"
+    assert command_title(MenuCommand.REPOLISH_HISTORY) == "重新润色"
+    assert command_title(MenuCommand.EXPORT_HISTORY_AUDIO) == "导出录音…"
     assert control_menu_title("127.0.0.1:8765") == "外部控制：127.0.0.1:8765"
 
 

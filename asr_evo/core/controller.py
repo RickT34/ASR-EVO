@@ -4,7 +4,7 @@ import asyncio
 import concurrent.futures
 import inspect
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import timedelta
 from pathlib import Path
 from typing import Any
@@ -18,13 +18,16 @@ from asr_evo.core.pipeline import (
     DictationOptions,
     DictationPipeline,
     DictationPipelineError,
+    DictationResult,
 )
 from asr_evo.core.ports import (
     AppContext,
     AppLifecycle,
     ASRProvider,
+    AudioClip,
     Clipboard,
     DesktopRecorder,
+    FileExporter,
     FileOpener,
     FrontmostAppProvider,
     HistoryRepository,
@@ -60,6 +63,7 @@ class DesktopControllerDependencies:
     context_store: ContextStore
     clipboard: Clipboard
     file_opener: FileOpener
+    file_exporter: FileExporter
     permissions: PermissionChecker
     lifecycle: AppLifecycle
     config_loader: Callable[[], AppConfig] = AppConfig.load
@@ -103,6 +107,9 @@ class DesktopDictationController:
             copy_history_raw=self.copy_history_raw,
             copy_history_final=self.copy_history_final,
             copy_history_user_edit=self.copy_history_user_edit,
+            retranscribe_history=self.retranscribe_history,
+            repolish_history=self.repolish_history,
+            export_history_audio=self.export_history_audio,
             copy_error=self.copy_current_error,
             clear_error=self.clear_error,
             quit=self.quit,
@@ -269,6 +276,133 @@ class DesktopDictationController:
         self.dependencies.clipboard.copy_text(str(record.get(field, "")))
         self.dependencies.tray.set_state(self.state.state.value, detail)
 
+    def retranscribe_history(self, record_id: str) -> None:
+        self._schedule_history_reprocess(record_id, retranscribe=True)
+
+    def repolish_history(self, record_id: str) -> None:
+        self._schedule_history_reprocess(record_id, retranscribe=False)
+
+    def export_history_audio(self, record_id: str) -> None:
+        entry = self.dependencies.history_store.get(record_id)
+        if entry is None:
+            self.dependencies.tray.set_state(self.state.state.value, "历史记录不存在")
+            return
+        audio_path = Path(str(entry.get("audio_path", "")))
+        if not entry.get("has_audio") or not audio_path.is_file():
+            self.dependencies.tray.set_state(self.state.state.value, "这条历史没有可用录音")
+            return
+        record = self.dependencies.history_store.get_record(record_id)
+        if record is None:
+            self.dependencies.tray.set_state(self.state.state.value, "历史记录不存在")
+            return
+        suggested_name = f"ASR-EVO-{record.ended_at:%Y%m%d-%H%M%S}{audio_path.suffix}"
+        try:
+            destination = self.dependencies.file_exporter.export_file(
+                audio_path,
+                suggested_name,
+            )
+        except Exception as exc:
+            self._show_error(exc)
+            return
+        if destination is not None:
+            self.dependencies.tray.set_state(self.state.state.value, "已导出录音")
+
+    def _schedule_history_reprocess(self, record_id: str, *, retranscribe: bool) -> None:
+        if self.state.state == DictationState.ERROR:
+            self.clear_error()
+        if self.state.state != DictationState.IDLE:
+            self.dependencies.tray.set_state(self.state.state.value, "当前任务尚未完成")
+            return
+        initial_state = DictationState.TRANSCRIBING if retranscribe else DictationState.POLISHING
+        self.state.state = initial_state
+        self.dependencies.tray.set_state(initial_state.value)
+        asyncio.run_coroutine_threadsafe(
+            self.reprocess_history_record(record_id, retranscribe=retranscribe),
+            self.loop,
+        )
+
+    async def reprocess_history_record(self, record_id: str, *, retranscribe: bool) -> None:
+        completion_detail = ""
+        try:
+            entry = self.dependencies.history_store.get(record_id)
+            record = self.dependencies.history_store.get_record(record_id)
+            if entry is None or record is None:
+                raise KeyError("历史记录不存在")
+
+            raw_text = record.raw_text
+            if retranscribe:
+                audio_path = Path(str(entry.get("audio_path", "")))
+                if not entry.get("has_audio") or not audio_path.is_file():
+                    raise FileNotFoundError("这条历史没有可用录音")
+                _StateTrackingTray(self).set_state(DictationState.TRANSCRIBING.value)
+                transcript = await self.dependencies.asr_provider.transcribe(
+                    AudioClip(
+                        path=audio_path,
+                        sample_rate=int(entry.get("audio_sample_rate") or 16000),
+                        duration_seconds=float(entry.get("audio_seconds") or 0),
+                    )
+                )
+                raw_text = transcript.text
+            if not raw_text.strip():
+                raise ValueError("历史记录没有可润色的原始转写")
+
+            style_id = (
+                record.style
+                if self.styles.has(record.style)
+                else self.style_bindings.current_style_id
+            )
+            context = ""
+            if self.config.context.enabled:
+                history_records = [
+                    item
+                    for item in self.dependencies.history_store.recent_records(
+                        limit=self.dependencies.context_store.max_items * 5
+                    )
+                    if item.id != record_id
+                ]
+                context = self.dependencies.context_store.render_for_prompt(
+                    app_context=record.app_context,
+                    records=history_records,
+                )
+
+            _StateTrackingTray(self).set_state(DictationState.POLISHING.value)
+            final_text = await self.dependencies.llm_provider.polish(
+                raw_text,
+                context,
+                self.styles.get(style_id).prompt,
+            )
+            updated_record = replace(
+                record,
+                raw_text=raw_text,
+                final_text=final_text,
+                user_edited_text=final_text,
+                style=style_id,
+            )
+            result = DictationResult(
+                raw_text=raw_text,
+                final_text=final_text,
+                record=updated_record,
+                audio_seconds=float(entry.get("audio_seconds") or 0),
+                app_context=record.app_context,
+                context=context,
+            )
+            if self.config.review.enabled:
+                _StateTrackingTray(self).set_state(DictationState.REVIEWING.value)
+            review_service = self._review_service()
+            review_result = await review_service.review(result, enabled=self.config.review.enabled)
+            if review_result is None:
+                completion_detail = "已取消更新历史记录"
+                return
+            result = review_service.apply_result(result, review_result)
+            self.dependencies.history_store.update(result.record)
+            self.refresh_menu_summaries()
+            completion_detail = "已重新转写并润色" if retranscribe else "已重新润色"
+        except Exception as exc:
+            self._show_error(exc)
+        finally:
+            if self.state.state != DictationState.ERROR:
+                _StateTrackingTray(self).set_state(DictationState.IDLE.value, completion_detail)
+
     def copy_current_error(self) -> None:
         if self.state.current_error is None:
             self.dependencies.tray.set_state(self.state.state.value, "暂无错误详情")
@@ -322,6 +456,8 @@ class DesktopDictationController:
 
     async def run_pipeline_once(self) -> None:
         raw_text_saved = False
+        result = None
+        save_attempted = False
         try:
             style = self.styles.get(self.style_bindings.current_style_id)
             pipeline = DictationPipeline(
@@ -338,6 +474,7 @@ class DesktopDictationController:
                     style=style.id,
                     prompt_instruction=style.prompt,
                     context_enabled=self.config.context.enabled,
+                    cleanup_audio=False,
                 ),
             )
             result = await pipeline.run_once()
@@ -346,6 +483,15 @@ class DesktopDictationController:
             review_service = self._review_service()
             review_result = await review_service.review(result, enabled=self.config.review.enabled)
             if review_result is None:
+                cancelled_record = replace(result.record, user_edited_text="")
+                save_attempted = True
+                self.dependencies.history_store.add(
+                    cancelled_record,
+                    audio=result.audio,
+                    audio_seconds=result.audio_seconds,
+                )
+                raw_text_saved = True
+                self.refresh_menu_summaries()
                 _StateTrackingTray(self).set_state(DictationState.IDLE.value, "已取消插入")
                 return
             _StateTrackingTray(self).set_state(DictationState.INSERTING.value)
@@ -353,15 +499,41 @@ class DesktopDictationController:
             try:
                 await self.dependencies.inserter.insert(review_result.text)
             finally:
-                self.dependencies.history_store.add(result.record, audio_seconds=result.audio_seconds)
+                save_attempted = True
+                self.dependencies.history_store.add(
+                    result.record,
+                    audio=result.audio,
+                    audio_seconds=result.audio_seconds,
+                )
                 raw_text_saved = True
                 self.refresh_menu_summaries()
         except DictationPipelineError as exc:
             if exc.record is not None:
-                self.dependencies.history_store.add(exc.record, audio_seconds=exc.audio_seconds)
-                self.refresh_menu_summaries()
-            self._show_error(exc, raw_text_saved=exc.record is not None)
+                try:
+                    self.dependencies.history_store.add(
+                        exc.record,
+                        audio=exc.audio,
+                        audio_seconds=exc.audio_seconds,
+                    )
+                    self.refresh_menu_summaries()
+                    raw_text_saved = True
+                except Exception as save_exc:
+                    self._show_error(save_exc)
+                    return
+            self._show_error(exc, raw_text_saved=bool(exc.raw_text and raw_text_saved))
         except Exception as exc:
+            if result is not None and not save_attempted:
+                try:
+                    self.dependencies.history_store.add(
+                        result.record,
+                        audio=result.audio,
+                        audio_seconds=result.audio_seconds,
+                    )
+                    self.refresh_menu_summaries()
+                    raw_text_saved = True
+                except Exception as save_exc:
+                    self._show_error(save_exc)
+                    return
             self._show_error(exc, raw_text_saved=raw_text_saved)
         finally:
             if self.state.state != DictationState.ERROR:

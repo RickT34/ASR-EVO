@@ -250,8 +250,25 @@ class WindowsStatusTray:
             ]
             if record.user_edit_preview is not None:
                 children.append(_readonly(record.user_edit_preview))
+            children.append(_readonly(record.audio_preview))
             children.extend(
                 [
+                    pystray.Menu.SEPARATOR,
+                    pystray.MenuItem(
+                        command_title(MenuCommand.RETRANSCRIBE_HISTORY),
+                        _action_with_arg(self.actions.retranscribe_history, record.id),
+                        enabled=record.can_retranscribe,
+                    ),
+                    pystray.MenuItem(
+                        command_title(MenuCommand.REPOLISH_HISTORY),
+                        _action_with_arg(self.actions.repolish_history, record.id),
+                        enabled=record.can_repolish,
+                    ),
+                    pystray.MenuItem(
+                        command_title(MenuCommand.EXPORT_HISTORY_AUDIO),
+                        _action_with_arg(self.actions.export_history_audio, record.id),
+                        enabled=record.can_retranscribe,
+                    ),
                     pystray.Menu.SEPARATOR,
                     pystray.MenuItem(
                         command_title(MenuCommand.COPY_HISTORY_RAW),

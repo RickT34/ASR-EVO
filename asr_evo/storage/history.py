@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import shutil
 import sqlite3
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
 from asr_evo.core.context import DictationRecord
-from asr_evo.core.ports import AppContext
+from asr_evo.core.ports import AppContext, AudioClip
 
 
 @dataclass(frozen=True)
@@ -20,36 +21,84 @@ class AppStats:
 
 class HistoryStore:
     def __init__(self, database_path: str | Path) -> None:
-        self.path = Path(database_path).expanduser()
+        self.path = Path(database_path).expanduser().resolve()
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.audio_dir = self.path.parent / "recordings"
         self._init_db()
 
-    def add(self, record: DictationRecord, *, audio_seconds: float = 0) -> None:
+    def add(
+        self,
+        record: DictationRecord,
+        *,
+        audio: AudioClip | None = None,
+        audio_seconds: float = 0,
+    ) -> None:
+        archived_audio = self._archive_audio(record.id, audio) if audio is not None else None
+        created_archive = bool(
+            audio is not None
+            and archived_audio is not None
+            and audio.path.resolve() != archived_audio.resolve()
+        )
+        try:
+            with self._connect() as conn:
+                conn.execute(
+                    """
+                    insert into dictations (
+                        id, started_at, ended_at, raw_text, final_text, style,
+                        bundle_id, app_name, window_title, audio_seconds, audio_sample_rate,
+                        audio_path, final_chars, user_edited_text, user_edited_chars
+                    ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        record.id,
+                        record.started_at.isoformat(),
+                        record.ended_at.isoformat(),
+                        record.raw_text,
+                        record.final_text,
+                        record.style,
+                        record.app_context.bundle_id or "",
+                        record.app_context.app_name or "",
+                        record.app_context.window_title or "",
+                        audio.duration_seconds if audio is not None else audio_seconds,
+                        audio.sample_rate if audio is not None else 0,
+                        archived_audio.name if archived_audio is not None else None,
+                        len(record.final_text),
+                        record.user_edited_text,
+                        len(record.user_edited_text),
+                    ),
+                )
+        except Exception:
+            if archived_audio is not None and created_archive:
+                archived_audio.unlink(missing_ok=True)
+            raise
+        if (
+            audio is not None
+            and archived_audio is not None
+            and audio.path.resolve() != archived_audio.resolve()
+        ):
+            audio.path.unlink(missing_ok=True)
+
+    def update(self, record: DictationRecord) -> None:
         with self._connect() as conn:
-            conn.execute(
+            cursor = conn.execute(
                 """
-                insert into dictations (
-                    id, started_at, ended_at, raw_text, final_text, style,
-                    bundle_id, app_name, window_title, audio_seconds, final_chars,
-                    user_edited_text, user_edited_chars
-                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                update dictations
+                set raw_text = ?, final_text = ?, style = ?, final_chars = ?,
+                    user_edited_text = ?, user_edited_chars = ?
+                where id = ?
                 """,
                 (
-                    record.id,
-                    record.started_at.isoformat(),
-                    record.ended_at.isoformat(),
                     record.raw_text,
                     record.final_text,
                     record.style,
-                    record.app_context.bundle_id or "",
-                    record.app_context.app_name or "",
-                    record.app_context.window_title or "",
-                    audio_seconds,
                     len(record.final_text),
                     record.user_edited_text,
                     len(record.user_edited_text),
+                    record.id,
                 ),
             )
+            if cursor.rowcount == 0:
+                raise KeyError(f"history record not found: {record.id}")
 
     def recent(self, limit: int = 100) -> list[dict]:
         with self._connect() as conn:
@@ -57,14 +106,15 @@ class HistoryStore:
                 """
                 select
                     id, ended_at, app_name, bundle_id, style, final_text, raw_text, final_chars,
-                    user_edited_text, user_edited_chars
+                    user_edited_text, user_edited_chars, audio_path, audio_seconds,
+                    audio_sample_rate
                 from dictations
                 order by ended_at desc
                 limit ?
                 """,
                 (limit,),
             ).fetchall()
-        return [dict(row) for row in rows]
+        return [self._entry_from_row(row) for row in rows]
 
     def recent_records(self, limit: int = 100) -> list[DictationRecord]:
         with self._connect() as conn:
@@ -100,14 +150,29 @@ class HistoryStore:
             row = conn.execute(
                 """
                 select
-                    id, ended_at, app_name, bundle_id, style, final_text, raw_text, final_chars,
-                    user_edited_text, user_edited_chars
+                    id, started_at, ended_at, app_name, bundle_id, window_title, style,
+                    final_text, raw_text, final_chars, user_edited_text, user_edited_chars,
+                    audio_path, audio_seconds, audio_sample_rate
                 from dictations
                 where id = ?
                 """,
                 (record_id,),
             ).fetchone()
-        return dict(row) if row else None
+        return self._entry_from_row(row) if row else None
+
+    def get_record(self, record_id: str) -> DictationRecord | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                select
+                    id, started_at, ended_at, raw_text, final_text, user_edited_text, style,
+                    bundle_id, app_name, window_title
+                from dictations
+                where id = ?
+                """,
+                (record_id,),
+            ).fetchone()
+        return self._record_from_row(row) if row else None
 
     def stats_by_app(self, limit: int = 50) -> list[AppStats]:
         with self._connect() as conn:
@@ -186,6 +251,8 @@ class HistoryStore:
                     app_name text,
                     window_title text,
                     audio_seconds real not null default 0,
+                    audio_sample_rate integer not null default 0,
+                    audio_path text,
                     final_chars integer not null default 0,
                     user_edited_text text,
                     user_edited_chars integer not null default 0,
@@ -195,17 +262,38 @@ class HistoryStore:
             )
             self._ensure_column(conn, "user_edited_text", "text")
             self._ensure_column(conn, "user_edited_chars", "integer not null default 0")
+            self._ensure_column(conn, "audio_sample_rate", "integer not null default 0")
+            self._ensure_column(conn, "audio_path", "text")
             conn.execute(
                 """
                 update dictations
                 set user_edited_text = final_text,
                     user_edited_chars = final_chars
                 where user_edited_text is null
-                   or length(trim(user_edited_text)) = 0
                 """
             )
             conn.execute("create index if not exists idx_dictations_ended_at on dictations(ended_at)")
             conn.execute("create index if not exists idx_dictations_app on dictations(bundle_id)")
+
+    def _archive_audio(self, record_id: str, audio: AudioClip) -> Path:
+        suffix = audio.path.suffix.lower()
+        if not suffix or not suffix.removeprefix(".").isalnum() or len(suffix) > 10:
+            suffix = ".wav"
+        self.audio_dir.mkdir(parents=True, exist_ok=True)
+        destination = self.audio_dir / f"{record_id}{suffix}"
+        if audio.path.resolve() != destination.resolve():
+            if destination.exists():
+                raise FileExistsError(f"audio archive already exists: {destination}")
+            shutil.copy2(audio.path, destination)
+        return destination
+
+    def _entry_from_row(self, row: sqlite3.Row) -> dict:
+        entry = dict(row)
+        stored_path = entry.get("audio_path")
+        audio_path = self.audio_dir / stored_path if stored_path else None
+        entry["audio_path"] = str(audio_path) if audio_path is not None else ""
+        entry["has_audio"] = bool(audio_path is not None and audio_path.is_file())
+        return entry
 
     def _ensure_column(self, conn: sqlite3.Connection, name: str, definition: str) -> None:
         columns = {

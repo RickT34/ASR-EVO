@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import concurrent.futures
 import queue
+import shutil
 import subprocess
 import sys
 import threading
@@ -23,6 +24,7 @@ from asr_evo.core.controller import (
 from asr_evo.core.ports import (
     AppLifecycle,
     Clipboard,
+    FileExporter,
     FileOpener,
 )
 from asr_evo.core.tray_proxy import UnboundStatusTray
@@ -66,6 +68,7 @@ class MacOSDictationRuntime:
             context_store=config.context.store(),
             clipboard=MacOSClipboard(),
             file_opener=MacOSFileOpener(),
+            file_exporter=MacOSFileExporter(),
             permissions=MacOSPermissions(),
             lifecycle=MacOSAppLifecycle(),
             on_config_applied=self.apply_config,
@@ -143,6 +146,21 @@ class MacOSDictationRuntime:
 class MacOSFileOpener(FileOpener):
     def open_path(self, path: Path) -> None:
         subprocess.run(["open", str(path)], check=False)
+
+
+class MacOSFileExporter(FileExporter):
+    def export_file(self, source: Path, suggested_name: str) -> Path | None:
+        from AppKit import NSModalResponseOK, NSSavePanel
+
+        panel = NSSavePanel.savePanel()
+        panel.setCanCreateDirectories_(True)
+        panel.setNameFieldStringValue_(suggested_name)
+        if panel.runModal() != NSModalResponseOK:
+            return None
+        destination = Path(str(panel.URL().path()))
+        if source.resolve() != destination.resolve():
+            shutil.copy2(source, destination)
+        return destination
 
 
 class MacOSClipboard(Clipboard):

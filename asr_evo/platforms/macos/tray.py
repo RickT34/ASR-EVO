@@ -283,6 +283,29 @@ class MacOSStatusTray:
             submenu.addItem_(final_preview)
             if record.user_edit_preview is not None:
                 submenu.addItem_(_readonly_item(record.user_edit_preview))
+            submenu.addItem_(_readonly_item(record.audio_preview))
+            submenu.addItem_(NSMenuItem.separatorItem())
+            retranscribe = _MenuTargetItem.create_with_arg(
+                title=command_title(MenuCommand.RETRANSCRIBE_HISTORY),
+                action=self.actions.retranscribe_history,
+                arg=record.id,
+            )
+            retranscribe.item.setEnabled_(record.can_retranscribe)
+            repolish = _MenuTargetItem.create_with_arg(
+                title=command_title(MenuCommand.REPOLISH_HISTORY),
+                action=self.actions.repolish_history,
+                arg=record.id,
+            )
+            repolish.item.setEnabled_(record.can_repolish)
+            export = _MenuTargetItem.create_with_arg(
+                title=command_title(MenuCommand.EXPORT_HISTORY_AUDIO),
+                action=self.actions.export_history_audio,
+                arg=record.id,
+            )
+            export.item.setEnabled_(record.can_retranscribe)
+            submenu.addItem_(retranscribe.item)
+            submenu.addItem_(repolish.item)
+            submenu.addItem_(export.item)
             submenu.addItem_(NSMenuItem.separatorItem())
             raw = _MenuTargetItem.create_with_arg(
                 title=command_title(MenuCommand.COPY_HISTORY_RAW),
@@ -296,7 +319,7 @@ class MacOSStatusTray:
             )
             submenu.addItem_(raw.item)
             submenu.addItem_(final.item)
-            targets = [raw, final]
+            targets = [retranscribe, repolish, export, raw, final]
             if record.user_edit_preview is not None:
                 user_edit = _MenuTargetItem.create_with_arg(
                     title=command_title(MenuCommand.COPY_HISTORY_USER_EDIT),

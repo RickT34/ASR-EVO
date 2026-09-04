@@ -39,7 +39,7 @@ asr_evo/
       inserter.py           # clipboard/keyboard text insertion
       frontmost.py          # foreground window detection
   storage/
-    history.py              # SQLite history and statistics
+    history.py              # SQLite history, audio archive, and statistics
 ```
 
 ## Core Flow
@@ -58,12 +58,15 @@ external trigger
         -> previewer(style/prompt) may call LLMProvider.polish again
         -> saver(style/prompt) may update prompt files and app bindings
      -> TextInserter.insert(user_text)
-     -> HistoryStore.add(record)
+     -> HistoryStore.add(record, audio)
+        -> archive audio under data/recordings/
 ```
 
-`DictationPipeline` catches failures after ASR succeeds and wraps them in `DictationPipelineError` with the raw transcript attached. The runtime persists that partial record, so users do not lose text when LLM or insertion fails.
+`DictationPipeline` transfers the recorded `AudioClip` to the controller instead of deleting it. Failures after recording are wrapped in `DictationPipelineError` with the audio and any raw transcript attached. `HistoryStore.add()` copies the audio into `data/recordings/`, commits its relative path and text metadata in SQLite, then removes the temporary recorder file. This also runs when ASR/LLM/insertion fails or the user cancels review, so every successfully completed recording remains recoverable.
 
 When review is enabled, the controller sends `TextReviewer` the raw transcript, current polished text, selected prompt, available styles, and the rendered context. The reviewer UI may ask the controller-owned preview callback to re-run polishing with a different or edited prompt, or ask the save callback to persist the prompt file and current-app style binding; the UI does not call providers or write config files directly. Confirmed text is stored as `user_edited_text` and inserted. The last AI preview remains `final_text`, and the selected preview style is stored as `style`. If review is disabled, `user_edited_text` is initialized with the LLM-polished text. Polishing context always renders `user_edited_text`, so the field means "the text the user ultimately accepted".
+
+History actions reuse the same provider and review services. “重新转写并润色” rebuilds an `AudioClip` from archived metadata, calls ASR, then LLM and the optional review UI. “重新润色” starts from the stored raw transcript. Both update the existing row and never invoke `TextInserter`. Audio export is a platform `FileExporter` boundary so native save dialogs remain outside core logic.
 
 The localhost control path is intentionally small: commands are `start`, `stop`, `toggle`, and `status`, serialized as one JSON request per TCP connection. The server listens only on `127.0.0.1`. On macOS, external hotkey tools own key capture and call `asr-evo-control`. On Windows, the runtime can also register the configured `[hotkey].toggle` global hotkey directly, either as a toggle or hold-to-record trigger.
 
@@ -116,6 +119,7 @@ Core code talks to `Protocol`s in `core/ports.py`:
 - `StatusTray`
 - `Clipboard`
 - `FileOpener`
+- `FileExporter`
 - `PermissionChecker`
 - `AppLifecycle`
 - `HistoryRepository`
@@ -148,7 +152,7 @@ Local files intentionally ignored by Git:
 - `data/`
 - `*.sqlite3`
 
-The app sends audio to the ASR provider and sends raw transcript/context/prompt instructions to the LLM provider. SQLite history stores raw, final, and captured user-edited text locally.
+The app sends audio to the ASR provider and sends raw transcript/context/prompt instructions to the LLM provider. SQLite history stores raw, final, captured user-edited text, and relative audio paths locally. Original recordings live under `data/recordings/` and are retained until the user removes them.
 
 ## Release Checklist
 

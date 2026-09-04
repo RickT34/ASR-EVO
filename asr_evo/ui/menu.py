@@ -37,6 +37,9 @@ class MenuCommand(StrEnum):
     COPY_HISTORY_RAW = "copy_history_raw"
     COPY_HISTORY_FINAL = "copy_history_final"
     COPY_HISTORY_USER_EDIT = "copy_history_user_edit"
+    RETRANSCRIBE_HISTORY = "retranscribe_history"
+    REPOLISH_HISTORY = "repolish_history"
+    EXPORT_HISTORY_AUDIO = "export_history_audio"
     COPY_ERROR = "copy_error"
     CLEAR_ERROR = "clear_error"
     QUIT = "quit"
@@ -63,6 +66,9 @@ class TrayMenuActions:
     copy_history_raw: Callable[[str], None]
     copy_history_final: Callable[[str], None]
     copy_history_user_edit: Callable[[str], None]
+    retranscribe_history: Callable[[str], None]
+    repolish_history: Callable[[str], None]
+    export_history_audio: Callable[[str], None]
     copy_error: Callable[[], None]
     clear_error: Callable[[], None]
     quit: Callable[[], None]
@@ -82,6 +88,9 @@ class HistoryMenuRecord:
     raw_preview: str
     final_preview: str
     user_edit_preview: str | None
+    audio_preview: str
+    can_retranscribe: bool
+    can_repolish: bool
 
 
 @dataclass(frozen=True)
@@ -135,6 +144,18 @@ MENU_COMMAND_SPECS = {
     MenuCommand.COPY_HISTORY_USER_EDIT: MenuCommandSpec(
         command=MenuCommand.COPY_HISTORY_USER_EDIT,
         title="复制用户修订",
+    ),
+    MenuCommand.RETRANSCRIBE_HISTORY: MenuCommandSpec(
+        command=MenuCommand.RETRANSCRIBE_HISTORY,
+        title="重新转写并润色",
+    ),
+    MenuCommand.REPOLISH_HISTORY: MenuCommandSpec(
+        command=MenuCommand.REPOLISH_HISTORY,
+        title="重新润色",
+    ),
+    MenuCommand.EXPORT_HISTORY_AUDIO: MenuCommandSpec(
+        command=MenuCommand.EXPORT_HISTORY_AUDIO,
+        title="导出录音…",
     ),
     MenuCommand.COPY_ERROR: MenuCommandSpec(
         command=MenuCommand.COPY_ERROR,
@@ -228,14 +249,24 @@ def history_menu_records(records: list[dict], limit: int = 10) -> list[HistoryMe
                 if record.get("user_edited_text")
                 else None
             ),
+            audio_preview=audio_preview_title(record),
+            can_retranscribe=bool(record.get("has_audio")),
+            can_repolish=bool(str(record.get("raw_text", "")).strip()),
         )
         for record in records[:limit]
     ]
 
 
+def audio_preview_title(record: dict) -> str:
+    if not record.get("has_audio"):
+        return "录音：不可用"
+    seconds = float(record.get("audio_seconds") or 0)
+    return f"录音：已保存（{seconds:.1f} 秒）"
+
+
 def history_title(record: dict) -> str:
     text = " ".join(str(record.get("user_edited_text") or record.get("final_text", "")).split())
-    if not text and record.get("raw_text"):
+    if not text and (record.get("raw_text") or record.get("has_audio")):
         text = "转写失败待重试"
     text = ellipsize(text, 24)
     app = record.get("app_name") or record.get("bundle_id") or "未知应用"

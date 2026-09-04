@@ -8,6 +8,7 @@ from .context import ContextStore, DictationRecord
 from .ports import (
     AppContext,
     ASRProvider,
+    AudioClip,
     FrontmostAppProvider,
     HistoryRepository,
     LLMProvider,
@@ -23,6 +24,7 @@ class DictationResult:
     final_text: str
     record: DictationRecord
     audio_seconds: float
+    audio: AudioClip | None = None
     app_context: AppContext | None = None
     context: str = ""
 
@@ -44,6 +46,7 @@ class DictationResult:
             final_text=record.final_text,
             record=record,
             audio_seconds=self.audio_seconds,
+            audio=self.audio,
             app_context=self.app_context,
             context=self.context,
         )
@@ -76,11 +79,13 @@ class DictationPipelineError(Exception):
         raw_text: str = "",
         record: DictationRecord | None = None,
         audio_seconds: float = 0,
+        audio: AudioClip | None = None,
     ) -> None:
         super().__init__(message)
         self.raw_text = raw_text
         self.record = record
         self.audio_seconds = audio_seconds
+        self.audio = audio
 
 
 class DictationPipeline:
@@ -140,11 +145,12 @@ class DictationPipeline:
                 final_text=final_text,
                 record=record,
                 audio_seconds=audio.duration_seconds,
+                audio=audio,
                 app_context=app_context,
                 context=context,
             )
         except Exception as exc:
-            if transcript_text:
+            if audio is not None:
                 record = DictationRecord.create(
                     started_at=started_at,
                     raw_text=transcript_text,
@@ -157,6 +163,7 @@ class DictationPipeline:
                     raw_text=transcript_text,
                     record=record,
                     audio_seconds=audio.duration_seconds if audio is not None else 0,
+                    audio=audio,
                 ) from exc
             raise
         finally:

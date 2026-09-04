@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import shutil
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -25,6 +26,7 @@ from asr_evo.core.ports import (
 )
 from asr_evo.core.state import DictationState
 from asr_evo.postprocess.styles import StyleDefinition
+from asr_evo.storage.history import HistoryStore
 
 
 async def test_controller_runs_pipeline_and_persists_history(tmp_path: Path) -> None:
@@ -38,6 +40,9 @@ async def test_controller_runs_pipeline_and_persists_history(tmp_path: Path) -> 
     assert records[0]["raw_text"] == "raw"
     assert records[0]["final_text"] == "final:raw"
     assert records[0]["user_edited_text"] == "final:raw"
+    assert records[0]["has_audio"] is True
+    assert Path(records[0]["audio_path"]).read_bytes() == b"audio"
+    assert not deps.recorder.audio_path.exists()
     assert deps.tray.states[-1] == ("idle", "")
     assert deps.tray.history_records
 
@@ -110,7 +115,10 @@ async def test_controller_cancels_insert_when_review_is_cancelled(tmp_path: Path
 
     await controller.run_pipeline_once()
 
-    assert deps.history_store.recent() == []
+    records = deps.history_store.recent()
+    assert len(records) == 1
+    assert records[0]["has_audio"] is True
+    assert records[0]["user_edited_text"] == ""
     assert deps.inserter.text is None
     assert ("idle", "已取消插入") in deps.tray.states
 
@@ -184,6 +192,94 @@ def test_controller_copies_history_through_clipboard_port(tmp_path: Path) -> Non
 
     assert deps.clipboard.text == "final text"
     assert deps.tray.states[-1] == ("idle", "已复制润色结果")
+
+
+def test_controller_exports_history_audio(tmp_path: Path) -> None:
+    controller, deps = _make_controller(tmp_path)
+    source = tmp_path / "source.wav"
+    source.write_bytes(b"recording")
+    record = DictationRecord.create(
+        started_at=datetime.now(UTC),
+        raw_text="raw text",
+        final_text="final text",
+        style="通用润色",
+        app_context=AppContext(bundle_id="com.example.App", app_name="Example"),
+    )
+    deps.history_store.add(
+        record,
+        audio=AudioClip(path=source, sample_rate=16000, duration_seconds=1),
+    )
+
+    controller.export_history_audio(record.id)
+
+    assert deps.file_exporter.destination is not None
+    assert deps.file_exporter.destination.read_bytes() == b"recording"
+    assert deps.tray.states[-1] == ("idle", "已导出录音")
+
+
+async def test_controller_retranscribes_and_repolishes_history_without_inserting(
+    tmp_path: Path,
+) -> None:
+    controller, deps = _make_controller(tmp_path)
+    source = tmp_path / "source.wav"
+    source.write_bytes(b"recording")
+    record = DictationRecord.create(
+        started_at=datetime.now(UTC),
+        raw_text="old raw",
+        final_text="old final",
+        style="通用润色",
+        app_context=AppContext(bundle_id="com.example.App", app_name="Example"),
+    )
+    deps.history_store.add(
+        record,
+        audio=AudioClip(path=source, sample_rate=24000, duration_seconds=2),
+    )
+    deps.asr_provider.text = "new raw"
+
+    await controller.reprocess_history_record(record.id, retranscribe=True)
+
+    updated = deps.history_store.get(record.id)
+    assert updated is not None
+    assert updated["raw_text"] == "new raw"
+    assert updated["final_text"] == "final:new raw"
+    assert updated["user_edited_text"] == "final:new raw"
+    assert deps.asr_provider.audios[0].sample_rate == 24000
+    assert deps.inserter.text is None
+    assert deps.tray.states[-1] == ("idle", "已重新转写并润色")
+
+
+async def test_controller_repolishes_history_without_calling_asr(tmp_path: Path) -> None:
+    controller, deps = _make_controller(tmp_path)
+    record = DictationRecord.create(
+        started_at=datetime.now(UTC),
+        raw_text="saved raw",
+        final_text="old final",
+        style="通用润色",
+        app_context=AppContext(bundle_id="com.example.App", app_name="Example"),
+    )
+    deps.history_store.add(record)
+
+    await controller.reprocess_history_record(record.id, retranscribe=False)
+
+    updated = deps.history_store.get(record.id)
+    assert updated is not None
+    assert updated["final_text"] == "final:saved raw"
+    assert deps.asr_provider.audios == []
+    assert deps.tray.states[-1] == ("idle", "已重新润色")
+
+
+async def test_controller_archives_audio_when_asr_fails(tmp_path: Path) -> None:
+    controller, deps = _make_controller(tmp_path)
+    deps.recorder.audio_path.write_bytes(b"audio")
+    deps.asr_provider.error = RuntimeError("asr unavailable")
+
+    await controller.run_pipeline_once()
+
+    records = deps.history_store.recent()
+    assert len(records) == 1
+    assert records[0]["raw_text"] == ""
+    assert records[0]["has_audio"] is True
+    assert controller.state.state == DictationState.ERROR
 
 
 def test_controller_applies_config_and_persists_it(tmp_path: Path) -> None:
@@ -330,10 +426,11 @@ def _make_controller(
         inserter=FakeInserter(),
         text_reviewer=FakeTextReviewer(),
         app_provider=FakeAppProvider(),
-        history_store=FakeHistoryStore(),
+        history_store=HistoryStore(tmp_path / "history.sqlite3"),
         context_store=ContextStore(scope="app"),
         clipboard=FakeClipboard(),
         file_opener=FakeFileOpener(),
+        file_exporter=FakeFileExporter(tmp_path / "exports"),
         permissions=FakePermissions(trusted=trusted),
         lifecycle=FakeLifecycle(),
         config_path=tmp_path / "config.toml",
@@ -375,10 +472,11 @@ class _Deps:
     inserter: "FakeInserter"
     text_reviewer: "FakeTextReviewer"
     app_provider: "FakeAppProvider"
-    history_store: "FakeHistoryStore"
+    history_store: HistoryStore
     context_store: ContextStore
     clipboard: "FakeClipboard"
     file_opener: "FakeFileOpener"
+    file_exporter: "FakeFileExporter"
     permissions: "FakePermissions"
     lifecycle: "FakeLifecycle"
     config_path: Path
@@ -461,9 +559,15 @@ class FakeRecorder:
 class FakeASR:
     def __init__(self) -> None:
         self.closed = False
+        self.text = "raw"
+        self.error: Exception | None = None
+        self.audios: list[AudioClip] = []
 
     async def transcribe(self, audio: AudioClip) -> Transcript:
-        return Transcript(text="raw")
+        self.audios.append(audio)
+        if self.error is not None:
+            raise self.error
+        return Transcript(text=self.text)
 
     async def aclose(self) -> None:
         self.closed = True
@@ -533,43 +637,6 @@ class FakeAppProvider:
         return AppContext(bundle_id="com.example.App", app_name="Example")
 
 
-class FakeHistoryStore:
-    def __init__(self) -> None:
-        self.records: list[dict] = []
-
-    def add(self, record: DictationRecord, *, audio_seconds: float = 0) -> None:
-        self.records.append(
-            {
-                "id": record.id,
-                "raw_text": record.raw_text,
-                "final_text": record.final_text,
-                "app_name": record.app_context.app_name,
-                "bundle_id": record.app_context.bundle_id,
-                "style": record.style,
-                "audio_seconds": audio_seconds,
-                "user_edited_text": record.user_edited_text,
-            }
-        )
-
-    def recent(self, limit: int = 100) -> list[dict]:
-        return self.records[:limit]
-
-    def recent_records(self, limit: int = 100) -> list[DictationRecord]:
-        return []
-
-    def get(self, record_id: str) -> dict | None:
-        for record in self.records:
-            if record["id"] == record_id:
-                return record
-        return None
-
-    def totals(self) -> dict[str, int | float]:
-        return {"count": len(self.records), "total_chars": 0, "total_audio_seconds": 0}
-
-    def stats_by_app(self) -> list[AppStatsSummary]:
-        return []
-
-
 class FakeClipboard:
     def __init__(self) -> None:
         self.text = ""
@@ -584,6 +651,18 @@ class FakeFileOpener:
 
     def open_path(self, path: Path) -> None:
         self.paths.append(path)
+
+
+class FakeFileExporter:
+    def __init__(self, directory: Path) -> None:
+        self.directory = directory
+        self.destination: Path | None = None
+
+    def export_file(self, source: Path, suggested_name: str) -> Path:
+        self.directory.mkdir(parents=True, exist_ok=True)
+        self.destination = self.directory / suggested_name
+        shutil.copy2(source, self.destination)
+        return self.destination
 
 
 class FakePermissions:
