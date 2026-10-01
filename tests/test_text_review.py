@@ -21,7 +21,8 @@ from asr_evo.ui.text_review import (
 )
 
 
-async def test_tk_text_reviewer_runs_dialog_module_in_child_process() -> None:
+async def test_tk_text_reviewer_runs_dialog_module_in_child_process(monkeypatch) -> None:
+    monkeypatch.setattr(text_review, "_review_python_executable", lambda: sys.executable)
     calls = []
     process = _FakeProcess(
         stdout=[

@@ -28,18 +28,32 @@ class HotkeyConfig(BaseModel):
 
 
 class ASRConfig(BaseModel):
+    backend: Literal["openai", "qwen_local"] = "openai"
     model: str = "qwen3-asr-flash"
     base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
     api_key_env: str = Field(default=ASR_API_KEY_ENV, pattern=r"^[A-Za-z_][A-Za-z0-9_]*$")
+    device: str = "auto"
+    dtype: Literal["auto", "float32", "float16", "bfloat16"] = "auto"
+    language: str = ""
+    python_executable: str = ""
+    timeout_seconds: float = Field(default=600, gt=0)
+
+
+class LinuxConfig(BaseModel):
+    tray: Literal["standard", "waybar"] = "standard"
+    paste_shortcut: Literal["ctrl+v", "ctrl+shift+v"] = "ctrl+v"
 
 
 class LLMProfileConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    backend: Literal["openai", "ollama"] = "openai"
     base_url: str
     model: str
-    api_key_env: str = Field(pattern=r"^[A-Za-z_][A-Za-z0-9_]*$")
+    api_key_env: str = Field(default=LLM_API_KEY_ENV, pattern=r"^[A-Za-z_][A-Za-z0-9_]*$")
     enable_thinking: bool | None = None
+    keep_alive_seconds: int = Field(default=0, ge=0)
+    timeout_seconds: float = Field(default=300, gt=0)
 
 
 class LLMConfig(BaseModel):
@@ -131,6 +145,7 @@ class AppConfig(BaseModel):
 
     control: ControlConfig = ControlConfig()
     hotkey: HotkeyConfig = HotkeyConfig()
+    linux: LinuxConfig = LinuxConfig()
     asr: ASRConfig = ASRConfig()
     llm: LLMConfig = LLMConfig()
     style: StyleConfig = StyleConfig()
@@ -177,6 +192,7 @@ class AppConfig(BaseModel):
         sections = {
             "control": self.control.model_dump(),
             "hotkey": self.hotkey.model_dump(),
+            "linux": self.linux.model_dump(),
             "asr": self.asr.model_dump(),
             "llm": self.llm.model_dump(exclude_none=True),
             "style": self.style.model_dump(),
@@ -254,6 +270,10 @@ STORAGE_DEFAULTS = StorageDefaults()
 
 
 CONFIG_COMMENTS: dict[str, list[str]] = {
+    "linux": [
+        "Linux：standard 使用 AppIndicator 托盘；waybar 使用自定义模块。切换后重启。",
+        "快捷键由桌面/合成器绑定 asr-evo-control；终端可用 ctrl+shift+v 粘贴。",
+    ],
     "control": [
         "外部触发控制接口。默认只监听 127.0.0.1，供本机工具调用。",
         "port 可改成其他本机端口；可用命令：asr-evo-control start | stop | toggle | status。",

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import os
-import shutil
 import sys
 import threading
 from pathlib import Path
@@ -11,15 +10,16 @@ from asr_evo.audio.recorder import SoundDeviceRecorder
 from asr_evo.config import AUDIO_DEFAULTS, INSERT_DEFAULTS, STORAGE_DEFAULTS, AppConfig
 from asr_evo.core.control import ControlResult, DictationControlServer
 from asr_evo.core.controller import DesktopControllerDependencies, DesktopDictationController
-from asr_evo.core.ports import AppLifecycle, FileExporter, FileOpener
+from asr_evo.core.ports import AppLifecycle, FileOpener
 from asr_evo.core.tray_proxy import UnboundStatusTray
 from asr_evo.platforms.windows.frontmost import WindowsFrontmostAppProvider
 from asr_evo.platforms.windows.hotkey import WindowsHotkeyListener
 from asr_evo.platforms.windows.inserter import WindowsClipboard, WindowsTextInserter
 from asr_evo.platforms.windows.permissions import WindowsPermissions
-from asr_evo.platforms.windows.tray import WindowsStatusTray
 from asr_evo.providers.factory import create_providers, provider_config_changed
 from asr_evo.storage.history import HistoryStore
+from asr_evo.ui.file_export import TkFileExporter
+from asr_evo.ui.pystray_tray import PystrayStatusTray
 from asr_evo.ui.text_review import TkTextReviewer
 
 
@@ -50,7 +50,7 @@ class WindowsDictationRuntime:
             context_store=config.context.store(),
             clipboard=WindowsClipboard(),
             file_opener=WindowsFileOpener(),
-            file_exporter=WindowsFileExporter(),
+            file_exporter=TkFileExporter(),
             permissions=WindowsPermissions(),
             lifecycle=self.lifecycle,
             on_config_applied=self.apply_config,
@@ -64,7 +64,7 @@ class WindowsDictationRuntime:
             port=config.control.port,
             handler=self._handle_control_command,
         )
-        self.tray = WindowsStatusTray(
+        self.tray = PystrayStatusTray(
             control_label=self.control_server.address,
             status_config=config.status,
             styles=self.controller.styles.all(),
@@ -146,30 +146,6 @@ class WindowsDictationRuntime:
 class WindowsFileOpener(FileOpener):
     def open_path(self, path: Path) -> None:
         os.startfile(path)  # type: ignore[attr-defined]
-
-
-class WindowsFileExporter(FileExporter):
-    def export_file(self, source: Path, suggested_name: str) -> Path | None:
-        from tkinter import Tk, filedialog
-
-        root = Tk()
-        root.withdraw()
-        root.attributes("-topmost", True)
-        try:
-            selected = filedialog.asksaveasfilename(
-                parent=root,
-                initialfile=suggested_name,
-                defaultextension=source.suffix,
-                filetypes=[("音频文件", f"*{source.suffix}"), ("所有文件", "*.*")],
-            )
-        finally:
-            root.destroy()
-        if not selected:
-            return None
-        destination = Path(selected)
-        if source.resolve() != destination.resolve():
-            shutil.copy2(source, destination)
-        return destination
 
 
 class WindowsAppLifecycle(AppLifecycle):

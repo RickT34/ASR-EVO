@@ -1,0 +1,15 @@
+/* 配合本机 DroidSansM Nerd Font、半透明背景与圆角模块样式。 */
+#custom-asr-evo {
+  margin: 1px;
+  padding: 0 4px 0 6px;
+  color: #d7ff9c;
+  background: rgba(164, 164, 164, 0.095);
+  border-radius: 4px;
+  border: 1px dotted rgba(241, 239, 255, 0.346);
+}
+#custom-asr-evo.recording { background: rgba(255, 54, 23, 0.7); }
+#custom-asr-evo.transcribing,
+#custom-asr-evo.polishing { background: rgba(201, 148, 23, 0.7); }
+#custom-asr-evo.reviewing { color: #93e6ff; }
+#custom-asr-evo.error { color: #ff8282; }
+#custom-asr-evo.offline { color: #777777; }

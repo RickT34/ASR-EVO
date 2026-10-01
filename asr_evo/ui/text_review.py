@@ -7,6 +7,7 @@ import subprocess
 import sys
 import threading
 from dataclasses import asdict
+from pathlib import Path
 from typing import Any
 
 from asr_evo.core.ports import (
@@ -152,6 +153,25 @@ def _review_child_command() -> tuple[str, ...]:
 
 def _review_python_executable() -> str:
     executable = sys.executable
+    if sys.platform == "linux":
+        # Standalone Python builds can ship Tk without Xft/fontconfig, making
+        # system CJK fonts invisible. This UI worker uses only the standard
+        # library, so it can use the distribution's Tk independently of the venv.
+        system_python = Path("/usr/bin/python3")
+        if system_python.is_file() and system_python.resolve() != Path(executable).resolve():
+            try:
+                probe = subprocess.run(
+                    [str(system_python), "-I", "-c", "import tkinter"],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=3,
+                    check=False,
+                )
+                if probe.returncode == 0:
+                    return str(system_python)
+            except (OSError, subprocess.TimeoutExpired):
+                pass
+        return executable
     if sys.platform != "win32" or not executable.lower().endswith("pythonw.exe"):
         return executable
     python_exe = executable[:-5] + ".exe"
@@ -162,6 +182,12 @@ def _review_child_process_options() -> dict[str, Any]:
     env = os.environ.copy()
     env["PYTHONUTF8"] = "1"
     env["PYTHONIOENCODING"] = "utf-8"
+    # The system interpreter need not have ASR-EVO installed. Make this exact
+    # checkout/package available to the stdlib-only worker, regardless of cwd.
+    package_root = str(Path(__file__).resolve().parents[2])
+    env["PYTHONPATH"] = os.pathsep.join(
+        part for part in (package_root, env.get("PYTHONPATH", "")) if part
+    )
     options: dict[str, Any] = {
         "stdin": asyncio.subprocess.PIPE,
         "stdout": asyncio.subprocess.PIPE,
@@ -257,7 +283,7 @@ def show_text_review(request: TextReviewRequest) -> TextReviewResult | None:
     pending_preview = {"value": False}
     prompt_after_id = {"value": ""}
 
-    root = tk.Tk()
+    root = tk.Tk(className="ae_textreview")
     _configure_tk_fonts(root)
     root.title("确认文本")
     root.geometry("860x500")
@@ -277,12 +303,12 @@ def show_text_review(request: TextReviewRequest) -> TextReviewResult | None:
     ttk.Label(main, text="转写原文").grid(row=0, column=0, sticky="w")
     ttk.Label(main, text="润色后文本").grid(row=0, column=1, sticky="w", padx=(10, 0))
 
-    raw_box = ScrolledText(main, wrap="word", height=10)
+    raw_box = ScrolledText(main, wrap="word", height=10, font="TkTextFont")
     raw_box.insert("1.0", request.raw_text)
     raw_box.configure(state="disabled")
     raw_box.grid(row=1, column=0, sticky="nsew", pady=(4, 10))
 
-    polished_box = ScrolledText(main, wrap="word", undo=True, height=10)
+    polished_box = ScrolledText(main, wrap="word", undo=True, height=10, font="TkTextFont")
     polished_box.insert("1.0", request.polished_text)
     polished_box.grid(row=1, column=1, sticky="nsew", padx=(10, 0), pady=(4, 10))
 
@@ -302,13 +328,17 @@ def show_text_review(request: TextReviewRequest) -> TextReviewResult | None:
         values=[style.id for style in request.styles],
         state="readonly" if request.styles else "disabled",
         width=24,
+        font="TkTextFont",
     )
     style_box.grid(row=0, column=2, sticky="e", padx=(10, 8))
     save_button = ttk.Button(controls, text="保存", command=lambda: request_save())
     save_button.grid(row=0, column=3, sticky="e")
 
-    prompt_box = ScrolledText(main, wrap="word", undo=True, height=8)
+    prompt_box = ScrolledText(main, wrap="word", undo=True, height=8, font="TkTextFont")
     prompt_box.insert("1.0", current_style.prompt or request.prompt_instruction)
+    # Text.insert marks the widget modified even before the handler is bound.
+    # Initial content is already polished; only subsequent edits need a preview.
+    prompt_box.edit_modified(False)
     prompt_box.grid(row=3, column=0, columnspan=2, sticky="nsew", pady=(4, 10))
     prompt_box.grid_remove()
 
@@ -338,6 +368,10 @@ def show_text_review(request: TextReviewRequest) -> TextReviewResult | None:
         ok_button.configure(state="disabled" if confirm_disabled else "normal")
 
     def request_preview(event: object | None = None) -> str:
+        # An explicit refresh/style change replaces any debounced preview.
+        if prompt_after_id["value"]:
+            root.after_cancel(prompt_after_id["value"])
+            prompt_after_id["value"] = ""
         if io_busy["value"]:
             pending_preview["value"] = True
             return "break"
@@ -525,11 +559,11 @@ def show_text_review(request: TextReviewRequest) -> TextReviewResult | None:
 
 
 def _configure_tk_fonts(root) -> None:
-    if sys.platform != "win32":
+    if sys.platform not in {"win32", "linux"}:
         return
     try:
         import tkinter as tk
-        from tkinter import font
+        from tkinter import font, ttk
     except ImportError:
         return
     preferred = (
@@ -539,13 +573,27 @@ def _configure_tk_fonts(root) -> None:
         "NSimSun",
         "Arial Unicode MS",
     )
-    families = set(font.families(root))
-    family = next((candidate for candidate in preferred if candidate in families), "")
+    if sys.platform == "linux":
+        preferred = (
+            "Noto Sans CJK SC",
+            "Source Han Sans SC",
+            "Source Han Sans CN",
+            "WenQuanYi Micro Hei",
+            "WenQuanYi Zen Hei",
+            *preferred,
+            "Maple Mono NF CN",
+        )
+    families = {family.casefold(): family for family in font.families(root)}
+    family = next(
+        (families[candidate.casefold()] for candidate in preferred if candidate.casefold() in families),
+        "",
+    )
     if not family:
         return
     for name in (
         "TkDefaultFont",
         "TkTextFont",
+        "TkFixedFont",
         "TkMenuFont",
         "TkHeadingFont",
         "TkCaptionFont",
@@ -554,9 +602,14 @@ def _configure_tk_fonts(root) -> None:
         "TkTooltipFont",
     ):
         try:
-            font.nametofont(name).configure(family=family)
+            font.nametofont(name, root=root).configure(family=family)
         except tk.TclError:
             continue
+    root.option_add("*Font", "TkDefaultFont")
+    root.option_add("*Text.font", "TkTextFont")
+    root.option_add("*Listbox.font", "TkTextFont")
+    root.option_add("*TCombobox*Listbox.font", "TkTextFont")
+    ttk.Style(root).configure(".", font="TkDefaultFont")
 
 
 def _send_stdout(message: dict[str, Any]) -> None:

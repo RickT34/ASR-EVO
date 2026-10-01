@@ -14,6 +14,10 @@ def create_runtime(config: AppConfig):
         from .platforms.windows.runtime import WindowsDictationRuntime
 
         return WindowsDictationRuntime(config)
+    if sys.platform == "linux":
+        from .platforms.linux.runtime import LinuxDictationRuntime
+
+        return LinuxDictationRuntime(config)
     raise SystemExit(f"ASR-EVO does not yet ship a runnable desktop runtime for {sys.platform}.")
 
 

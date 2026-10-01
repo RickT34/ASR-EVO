@@ -1,0 +1,39 @@
+# 从项目根目录启动。首次配置时复制为 config.toml；已有配置请合并所需段落。
+[linux]
+tray = "waybar" # 改为 standard 显示普通 AppIndicator 托盘；切换后重启
+paste_shortcut = "ctrl+v" # 终端通常需要 ctrl+shift+v
+
+[hotkey]
+enabled = false # Linux 通过 Hyprland/桌面设置绑定 asr-evo-control
+
+[asr]
+backend = "qwen_local"
+model = "Qwen/Qwen3-ASR-0.6B" # 可改为已下载的本地目录
+# 每次转写才启动模型进程，结束后退出并释放显存；权重文件仍保留在磁盘缓存。
+device = "auto" # auto: CUDA 可用则 cuda:0，否则 cpu
+# CPU 自动使用 float32，CUDA 自动使用 bfloat16；旧显卡可指定 float16。
+dtype = "auto"
+language = "" # 留空自动检测；强制中文用 Chinese（不是 zh）
+# 可以指向独立的模型虚拟环境，避免 torch/transformers 与桌面环境相互影响。
+python_executable = ""
+timeout_seconds = 600
+
+[llm]
+default_profile = "balanced"
+
+# 内置提示词引用 balanced/deep，保留这两个别名即可直接使用。
+[llm.profiles.balanced]
+backend = "ollama"
+base_url = "http://127.0.0.1:11434" # Ollama 原生 API 根地址，不要附加 /v1
+model = "qwen3:4b"
+enable_thinking = false
+keep_alive_seconds = 0 # 请求结束即卸载；设为 60 可减少连续润色的冷启动
+timeout_seconds = 300
+
+[llm.profiles.deep]
+backend = "ollama"
+base_url = "http://127.0.0.1:11434"
+model = "qwen3:4b"
+enable_thinking = false
+keep_alive_seconds = 0
+timeout_seconds = 300

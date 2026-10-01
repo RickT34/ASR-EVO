@@ -1,0 +1,24 @@
+{
+  // 将 custom/asr-evo 加到现有 modules-right，或替换 custom/voice_input。
+  // 修改下面路径为你的项目路径；显式端口使 Waybar 不依赖启动目录。
+  "custom/asr-evo": {
+    "format": "{icon}",
+    "tooltip": true,
+    "return-type": "json",
+    "exec": "/home/rickt/Data/Works/ASR-EVO/.venv/bin/asr-evo-control status --waybar --port 8765",
+    "on-click": "/home/rickt/Data/Works/ASR-EVO/.venv/bin/asr-evo-control toggle --port 8765",
+    "on-click-right": "/home/rickt/Data/Works/ASR-EVO/.venv/bin/asr-evo-control menu --port 8765",
+    "on-click-middle": "/home/rickt/Data/Works/ASR-EVO/.venv/bin/asr-evo-control stop --port 8765",
+    "interval": 1,
+    "format-icons": {
+      "idle": "󰍬 ",
+      "recording": "󰑋 ",
+      "transcribing": "󱄠 ",
+      "polishing": "󰏫 ",
+      "reviewing": "󰷈 ",
+      "inserting": "󰆒 ",
+      "error": "󰀪 ",
+      "offline": "󰍭 "
+    }
+  }
+}

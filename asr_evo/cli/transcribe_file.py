@@ -53,6 +53,7 @@ async def _run(audio_path: Path, config: AppConfig) -> None:
             transcript.text,
             context="",
             prompt_instruction=style.prompt,
+            profile=style.llm_profile,
         )
     finally:
         await asr.aclose()

@@ -19,10 +19,17 @@ asr_evo/
     recorder.py             # sounddevice-based recorder adapter
   ui/
     menu.py                 # platform-neutral menu/status presentation helpers
+    pystray_tray.py          # shared Windows/Linux tray rendering
+    file_export.py           # shared Tk file export dialog
+    waybar.py                # pure Waybar JSON presentation
+    popup_menu.py            # tray menu snapshot and popup process lifecycle
   providers/
     openai_provider.py      # OpenAI SDK-backed chat completions adapters
     llm_router.py            # prompt-selected LLM profile routing and lifecycle
     factory.py              # config -> provider instances
+    local_asr.py             # on-demand worker lifecycle and timeout/cancellation
+    qwen_worker.py           # isolated Qwen3-ASR inference, exits after each request
+    ollama_provider.py       # native chat API and model keep-alive/unload
   postprocess/
     prompts.py              # message construction for LLM post-processing
     styles.py               # prompt-file registry
@@ -36,10 +43,14 @@ asr_evo/
       permissions.py        # macOS permission checks
     windows/
       runtime.py            # orchestrates Windows services and core pipeline
-      tray.py               # pystray notification-area menu
       hotkey.py             # pynput global hotkey registration
       inserter.py           # clipboard/keyboard text insertion
       frontmost.py          # foreground window detection
+    linux/
+      runtime.py            # controller composition, signals, shutdown
+      desktop.py            # Hyprland/Wayland/X11 context, clipboard and insertion
+      tray.py               # AppIndicator or Waybar-only lifecycle
+      popup_menu.py         # native GTK/layer-shell popup, pointer events and rendering
   storage/
     history.py              # SQLite history, audio archive, and statistics
 ```
@@ -139,7 +150,7 @@ Core code talks to `Protocol`s in `core/ports.py`:
 
 `DictationPipeline` only needs the narrow `TrayUI` state/error surface. `DesktopDictationController` additionally uses `StatusTray` for desktop menu state such as styles, input devices, stats, and history. Runtime-only presentation such as the control endpoint label stays in the platform tray implementation, not in the core controller protocol.
 
-Windows support implements these ports with `pystray`, `pynput`, Tk clipboard access, and `pywin32` foreground-window detection while keeping the dictation pipeline unchanged. Future Linux support should follow the same rule: platform code may replace `StatusTray` with another desktop status surface as long as the same application-level operations are available.
+Windows support implements these ports with `pystray`, `pynput`, Tk clipboard access, and `pywin32` foreground-window detection while keeping the dictation pipeline unchanged. Linux uses the shared `PystrayStatusTray` for AppIndicator menus or stores status for the Waybar control client, importing GTK/pystray lazily only when a popup menu is requested. Hyprland and X11 adapters capture the target window before dictation and restore focus before pasting. Other Wayland desktops require wtype and do not provide per-app context. Global shortcuts belong to the compositor. Waybar-only mode also accepts the platform `menu` control command. It snapshots the same tray menu and displays it in an isolated GTK process; selected actions execute in the parent through existing controller callbacks. Concurrent opens are coalesced, and shutdown cancels/reaps the popup process. Under Wayland, gtk-layer-shell overlays receive actual pointer entry coordinates in surface-local logical pixels. The menu is placed on that output and clamped to its bounds, avoiding XWayland coordinate scaling and grabs. GTK/Pango renders labels and native buttons handle mouse/keyboard input. On X11 a managed GTK window uses the global pointer position.
 
 ## Configuration Philosophy
 
@@ -147,7 +158,9 @@ Windows support implements these ports with `pystray`, `pynput`, Tk clipboard ac
 
 - control port
 - macOS and Windows global hotkeys
-- ASR endpoint and named LLM profiles, including model, base URL, and key environment name
+- Linux status surface and paste shortcut
+- ASR backend, endpoint/local model, device, dtype, interpreter, timeout and language
+- named LLM profiles, including backend, model, base URL, key environment name and Ollama keep-alive
 - prompt directory, default style, app bindings
 - context enabled/TTL/max items/max chars/scope
 - review confirmation enabled
@@ -184,3 +197,9 @@ Also verify:
 - `config.example.toml` matches current config fields
 - `README.md` quick start works on a clean clone
 - `asr-evo-control start|stop|toggle|status` works against the running tray process
+
+## Local Model Lifecycle
+
+`qwen_local` starts a fresh worker only on `transcribe`. The optional torch/qwen-asr imports occur only in that worker. Workers are serialized per provider and always reaped after success, failure, timeout or cancellation. Process exit releases model tensors and the CUDA context; downloaded weights remain on disk. An alternate Python executable can isolate the model dependencies.
+
+Ollama profiles use the native API so `keep_alive` reaches the model server. The default is zero (unload after generation); positive seconds trade idle memory for lower latency. Closing a used provider sends an explicit unload and closes the HTTP client. Unused profiles do not issue model requests. The external Ollama service remains running and may also serve other clients. Existing OpenAI backends and profile routing remain available independently.

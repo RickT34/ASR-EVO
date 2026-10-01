@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from asr_evo.config import PROVIDER_DEFAULTS, AppConfig, LLMProfileConfig
 from asr_evo.providers.llm_router import LLMProfileRouter
+from asr_evo.providers.local_asr import QwenLocalASRProvider
+from asr_evo.providers.ollama_provider import OllamaLLMProvider
 from asr_evo.providers.request_debug import RemoteRequestDebugOptions
 
 from .openai_provider import (
@@ -12,7 +14,7 @@ from .openai_provider import (
 
 def create_providers(
     config: AppConfig,
-) -> tuple[OpenAIChatCompletionsASRProvider, LLMProfileRouter]:
+) -> tuple[OpenAIChatCompletionsASRProvider | QwenLocalASRProvider, LLMProfileRouter]:
     return create_asr_provider(config), create_llm_provider(config)
 
 
@@ -45,7 +47,9 @@ def create_llm_provider(config: AppConfig) -> LLMProfileRouter:
     return LLMProfileRouter(default_provider=default_provider, profiles=profiles)
 
 
-def create_asr_provider(config: AppConfig) -> OpenAIChatCompletionsASRProvider:
+def create_asr_provider(config: AppConfig) -> OpenAIChatCompletionsASRProvider | QwenLocalASRProvider:
+    if config.asr.backend == "qwen_local":
+        return QwenLocalASRProvider(config.asr)
     api_key = config.asr_api_key()
     if not api_key:
         raise RuntimeError(
@@ -74,7 +78,9 @@ def _create_llm_client(
     config: AppConfig,
     profile: LLMProfileConfig,
     api_key: str,
-) -> OpenAIChatCompletionsLLMProvider:
+) -> OpenAIChatCompletionsLLMProvider | OllamaLLMProvider:
+    if profile.backend == "ollama":
+        return OllamaLLMProvider(profile)
     return OpenAIChatCompletionsLLMProvider(
         api_key=api_key,
         base_url=profile.base_url,
@@ -89,6 +95,8 @@ def _require_profile_api_key(
     alias: str,
     profile: LLMProfileConfig,
 ) -> str:
+    if profile.backend == "ollama":
+        return ""
     api_key = config.llm_api_key(alias)
     if api_key:
         return api_key

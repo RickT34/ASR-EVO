@@ -1,8 +1,8 @@
 # ASR-EVO
 
-ASR-EVO 是一个 macOS 优先的轻量级听写助手：通过全局快捷键或外部工具触发录音，将语音发送给 ASR API 转写，再把转写文本交给 LLM 按当前提示词润色，最后插入到当前光标位置。
+ASR-EVO 是一个支持 macOS、Windows 与 Linux 的轻量级听写助手：通过快捷键或外部工具触发录音，使用云端或本地 ASR 转写，再交给 LLM 按当前提示词润色，最后插入到光标位置。
 
-它适合中文听写、会议记录、工作聊天、邮件草稿、技术记录等需要“先口述、再整理”的场景。项目保持 Python-only，尽量贴近 macOS 原生交互，同时把平台相关代码和核心流水线分开，方便以后扩展到其他桌面系统。
+它适合中文听写、会议记录、工作聊天、邮件草稿、技术记录等需要“先口述、再整理”的场景。项目保持 Python-only，尽量贴近 macOS 原生交互，同时把平台相关代码和核心流水线分开，复用同一套听写与历史流程。
 
 ## 它强在哪
 
@@ -16,7 +16,7 @@ ASR-EVO 是一个 macOS 优先的轻量级听写助手：通过全局快捷键�
 - **可改的提示词文件**：每个风格都是本地 `.md` 文件，不需要改代码。
 - **带上下文润色**：模型能看到同一应用最近几分钟的听写内容，减少指代不清和前后风格不一致。
 - **历史可回看**：远程 API 或插入失败时，原始转写仍会保存，减少“说了一大段结果丢了”的挫败感。
-- **尽量不打扰剪贴板**：默认短暂使用剪贴板粘贴，再恢复原内容。
+- **平台原生输入**：macOS/Windows 默认粘贴后恢复剪贴板；Linux 保留结果文本以便重贴。
 
 ## 使用例子
 
@@ -36,11 +36,11 @@ ASR-EVO 是一个 macOS 优先的轻量级听写助手：通过全局快捷键�
 
 ## 功能
 
-- macOS 状态栏托盘应用，无主窗口
+- macOS 状态栏、Windows 托盘、Linux AppIndicator 托盘或 Waybar 自定义图标
 - macOS 和 Windows 内置全局快捷键，支持切换和按住说话模式
 - 标准本机控制接口，仍可由 skhd、Hammerspoon、脚本或其他外部工具触发
-- 语音转文本走 API，目前默认使用阿里云百炼 DashScope Qwen ASR
-- 文本后处理走 OpenAI-compatible Chat Completions API，默认使用 `qwen-plus`
+- ASR 可用云端 API 或本地 Qwen3-ASR-0.6B；本地模型按需加载，转写后退出释放显存
+- LLM 可用 OpenAI-compatible API 或本地 Ollama；可配置生成后立即卸载或短暂保留
 - 提示词完全文件化，支持子文件夹分类并在托盘中显示为子菜单
 - 在不同应用中切换提示词后，会自动把该提示词绑定到当前应用
 - LLM 可读取同一应用内最近听写上下文，默认 TTL 为 10 分钟
@@ -53,13 +53,15 @@ ASR-EVO 是一个 macOS 优先的轻量级听写助手：通过全局快捷键�
 
 ## 系统要求
 
-- macOS
-- Python 3.11+
+- macOS、Windows 或 Linux（优先支持 Hyprland，也支持 X11）
+- Python 3.11+，本地模型建议 Python 3.12
 - 可用的麦克风
 - macOS 辅助功能权限和麦克风权限
-- ASR 和各 LLM profile 对应的 API Key
+- 使用云端后端时需要 ASR 和各 LLM profile 对应的 API Key
 
 ## 快速开始
+
+Linux 安装、Waybar/Hyprland 示例及本地模型配置见 [Linux 与本地模型指南](docs/LINUX.md)。完整本地配置见 [config.local.toml](examples/linux/config.local.toml)。
 
 ```bash
 git clone <your-repo-url>
@@ -295,11 +297,11 @@ ASR-EVO 不把 API Key 写入配置文件。每个 ASR/LLM 配置只保存
 
 需要注意：
 
-- 录音音频会发送给 ASR provider。
+- 录音音频由选定的 ASR provider 处理；云端后端会发送音频，本地 Qwen 后端在子进程中推理。
 - 原始转写、历史上下文和提示词会发送给 LLM provider。
 - 听写历史保存在本地 SQLite，包含原始转写、润色结果、可采集到的用户修订，以及 `data/recordings/` 中原始录音的相对路径。
 - 原始录音长期保存在本机 `data/recordings/`，不会自动清理；重新转写时会再次发送给 ASR provider。
-- 默认插入方式会短暂使用系统剪贴板，并在短延迟后恢复原内容。
+- macOS/Windows 默认短暂使用系统剪贴板并恢复；Linux 将最终文本保留在剪贴板。
 
 `.env`、`config.toml` 和 `data/` 已被 `.gitignore` 排除。发布或提交代码前请确认没有把个人配置、API Key 或历史数据库加入 Git。
 

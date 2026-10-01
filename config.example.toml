@@ -12,8 +12,15 @@ enabled = true
 toggle = "ctrl+alt+space"
 mode = "toggle"
 
+# Linux 由桌面/合成器绑定 asr-evo-control，不注册内置全局快捷键。
+# standard 显示普通托盘；waybar 配合 examples/linux/waybar.jsonc。切换后重启。
+[linux]
+tray = "standard"
+paste_shortcut = "ctrl+v"
+
 # 语音识别服务配置。api_key_env 指向 .env 中保存密钥的变量名。
 [asr]
+backend = "openai" # 本地 Qwen3-ASR 用 qwen_local，见 examples/linux/config.local.toml
 model = "qwen3-asr-flash"
 base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 api_key_env = "DASHSCOPE_API_KEY"
@@ -24,12 +31,22 @@ api_key_env = "DASHSCOPE_API_KEY"
 default_profile = "balanced"
 
 [llm.profiles.fast]
+backend = "openai" # 本地 LLM 可用 ollama，base_url 填 http://127.0.0.1:11434
 base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 model = "qwen-plus"
 api_key_env = "DASHSCOPE_API_KEY"
 enable_thinking = false
 
 [llm.profiles.balanced]
+backend = "openai"
+base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+model = "qwen-plus"
+api_key_env = "DASHSCOPE_API_KEY"
+enable_thinking = true
+
+# 内置“技术记录”和“博客文章”模板引用 deep。
+[llm.profiles.deep]
+backend = "openai"
 base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 model = "qwen-plus"
 api_key_env = "DASHSCOPE_API_KEY"

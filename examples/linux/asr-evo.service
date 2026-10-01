@@ -1,0 +1,15 @@
+[Unit]
+Description=ASR-EVO dictation
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/rickt/Data/Works/ASR-EVO
+ExecStart=/home/rickt/Data/Works/ASR-EVO/.venv/bin/asr-evo
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=20
+
+[Install]
+WantedBy=graphical-session.target

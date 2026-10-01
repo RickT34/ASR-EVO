@@ -29,7 +29,7 @@ from asr_evo.ui.menu import (
 )
 
 
-class WindowsStatusTray:
+class PystrayStatusTray:
     def __init__(
         self,
         *,
@@ -38,10 +38,12 @@ class WindowsStatusTray:
         styles: list[StyleDefinition],
         selected_style_id: str,
         actions: TrayMenuActions,
+        on_toggle: Callable[[], None] | None = None,
     ) -> None:
         self.control_label = control_label
         self.status_config = status_config
         self.actions = actions
+        self.on_toggle = on_toggle
         self._styles = styles
         self._selected_style_id = selected_style_id
         self._input_devices = []
@@ -60,7 +62,7 @@ class WindowsStatusTray:
         try:
             import pystray
         except ImportError as exc:
-            raise RuntimeError("pystray is required for the Windows tray menu") from exc
+            raise RuntimeError("pystray is required for the desktop tray menu") from exc
 
         self.icon = pystray.Icon(
             "ASR-EVO",
@@ -134,6 +136,8 @@ class WindowsStatusTray:
         items = [
             _readonly(control_menu_title(self.control_label)),
         ]
+        if self.on_toggle is not None:
+            items.append(pystray.MenuItem("开始 / 停止听写", _action(self.on_toggle)))
         if self._error_feedback is not None:
             items.append(self._error_menu())
         items.extend(
@@ -341,7 +345,7 @@ def _status_icon(state: str):
     try:
         from PIL import Image, ImageDraw
     except ImportError as exc:
-        raise RuntimeError("Pillow is required for the Windows tray icon") from exc
+        raise RuntimeError("Pillow is required for the desktop tray icon") from exc
 
     colors = {
         "idle": (45, 111, 214, 255),

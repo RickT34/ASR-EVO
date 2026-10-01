@@ -9,6 +9,7 @@ from typing import Any
 
 
 CONTROL_COMMANDS = frozenset({"start", "stop", "toggle", "status"})
+PLATFORM_CONTROL_COMMANDS = frozenset({"menu"})
 DEFAULT_CONTROL_HOST = "127.0.0.1"
 
 
@@ -101,7 +102,7 @@ def send_control_command(
     port: int,
     timeout: float = 5,
 ) -> dict[str, Any]:
-    if command not in CONTROL_COMMANDS:
+    if command not in CONTROL_COMMANDS | PLATFORM_CONTROL_COMMANDS:
         raise ValueError(f"unsupported control command: {command}")
     payload = json.dumps({"command": command}, ensure_ascii=False).encode("utf-8") + b"\n"
     with socket.create_connection((DEFAULT_CONTROL_HOST, port), timeout=timeout) as client:

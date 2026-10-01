@@ -3,14 +3,17 @@ from __future__ import annotations
 from typing import Any
 
 from asr_evo.providers.openai_provider import OpenAIChatCompletionsLLMProvider
+from asr_evo.providers.ollama_provider import OllamaLLMProvider
+
+LLMClient = OpenAIChatCompletionsLLMProvider | OllamaLLMProvider
 
 
 class LLMProfileRouter:
     def __init__(
         self,
         *,
-        default_provider: OpenAIChatCompletionsLLMProvider,
-        profiles: dict[str, OpenAIChatCompletionsLLMProvider],
+        default_provider: LLMClient,
+        profiles: dict[str, LLMClient],
     ) -> None:
         self.default_provider = default_provider
         self.profiles = profiles
@@ -41,7 +44,7 @@ class LLMProfileRouter:
             closed.add(id(provider))
             await provider.aclose()
 
-    def _provider(self, profile: str | None) -> OpenAIChatCompletionsLLMProvider:
+    def _provider(self, profile: str | None) -> LLMClient:
         if profile is None:
             return self.default_provider
         try:
