@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-from asr_evo.config import AppConfig
+from asr_evo.config import AppConfig, LLMProfileConfig
 from asr_evo.core.context import DictationRecord
 from asr_evo.core.pipeline import DictationResult
 from asr_evo.core.ports import (
@@ -50,6 +50,7 @@ async def test_review_service_builds_request_and_previews_with_selected_style(
     assert reviewer.seen[0].prompt_instruction == "polish"
     assert [style.id for style in reviewer.seen[0].styles] == ["通用润色", "情景/邮件"]
     assert llm.calls == [("raw", "history", "custom email")]
+    assert llm.profiles == ["deep"]
     assert bindings.current_style_id == "情景/邮件"
     assert result is not None
     assert result.polished_text == "preview:custom email"
@@ -65,7 +66,7 @@ async def test_review_service_saves_prompt_and_app_binding(tmp_path: Path) -> No
     result = await service.review(_dictation_result(), enabled=True)
 
     assert (tmp_path / "prompts" / "情景" / "邮件.md").read_text(encoding="utf-8") == (
-        "saved email\n"
+        '+++\nllm_profile = "deep"\n+++\n\nsaved email\n'
     )
     assert applied.config is not None
     assert applied.config.style.app_styles["com.example.App"] == "情景/邮件"
@@ -131,9 +132,18 @@ class FakeReviewer:
 class FakeLLM:
     def __init__(self) -> None:
         self.calls: list[tuple[str, str, str]] = []
+        self.profiles: list[str | None] = []
 
-    async def polish(self, raw_text: str, context: str, prompt_instruction: str) -> str:
+    async def polish(
+        self,
+        raw_text: str,
+        context: str,
+        prompt_instruction: str,
+        *,
+        profile: str | None = None,
+    ) -> str:
         self.calls.append((raw_text, context, prompt_instruction))
+        self.profiles.append(profile)
         return f"preview:{prompt_instruction}"
 
 
@@ -142,6 +152,11 @@ def _make_service(
 ) -> tuple[TextReviewService, FakeReviewer, FakeLLM, StyleBindingService, AppliedConfig]:
     prompts = _write_prompts(tmp_path)
     config = AppConfig()
+    config.llm.profiles["deep"] = LLMProfileConfig(
+        base_url="https://deep.example.test/v1",
+        model="deep-model",
+        api_key_env="DEEP_API_KEY",
+    )
     config.style.prompts_dir = str(prompts)
     styles = StyleRegistry(prompts_dir=prompts)
     bindings = StyleBindingService(config=config, styles=styles)
@@ -188,5 +203,8 @@ def _write_prompts(tmp_path: Path) -> Path:
     (prompts / "通用润色.md").write_text("polish", encoding="utf-8")
     scene = prompts / "情景"
     scene.mkdir()
-    (scene / "邮件.md").write_text("email", encoding="utf-8")
+    (scene / "邮件.md").write_text(
+        '+++\nllm_profile = "deep"\n+++\n\nemail\n',
+        encoding="utf-8",
+    )
     return prompts

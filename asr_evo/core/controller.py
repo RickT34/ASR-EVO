@@ -90,6 +90,7 @@ class DesktopDictationController:
         self.loop = loop
         self.state = RuntimeState()
         self.styles = StyleRegistry(prompts_dir=config.style.prompts_dir)
+        _validate_style_profiles(self.styles, config)
         self.style_bindings = StyleBindingService(config=config, styles=self.styles)
 
     def tray_actions(self) -> TrayMenuActions:
@@ -180,7 +181,14 @@ class DesktopDictationController:
         )
 
     def reload_styles(self) -> None:
-        self.style_bindings.reload_styles()
+        try:
+            styles = StyleRegistry(prompts_dir=self.config.style.prompts_dir)
+            _validate_style_profiles(styles, self.config)
+        except Exception as exc:
+            self._show_error(exc)
+            return
+        self.styles = styles
+        self.style_bindings.configure(self.config, styles=styles)
         self._sync_style_menu()
         self.update_app_binding_summary()
         self.dependencies.tray.set_state(self.state.state.value, "已重新加载提示词")
@@ -366,10 +374,12 @@ class DesktopDictationController:
                 )
 
             _StateTrackingTray(self).set_state(DictationState.POLISHING.value)
+            style = self.styles.get(style_id)
             final_text = await self.dependencies.llm_provider.polish(
                 raw_text,
                 context,
-                self.styles.get(style_id).prompt,
+                style.prompt,
+                profile=style.llm_profile,
             )
             updated_record = replace(
                 record,
@@ -473,6 +483,7 @@ class DesktopDictationController:
                 options=DictationOptions(
                     style=style.id,
                     prompt_instruction=style.prompt,
+                    llm_profile=style.llm_profile,
                     context_enabled=self.config.context.enabled,
                     cleanup_audio=False,
                 ),
@@ -612,11 +623,24 @@ def prepare_runtime_config(
     current_style_id: str,
 ) -> RuntimeConfigApplication:
     styles = StyleRegistry(prompts_dir=config.style.prompts_dir)
+    _validate_style_profiles(styles, config)
     default_style_id = (
         config.style.mode if styles.has(config.style.mode) else styles.default_style_id()
     )
     selected_style_id = current_style_id if styles.has(current_style_id) else default_style_id
     return RuntimeConfigApplication(styles=styles, selected_style_id=selected_style_id)
+
+
+def _validate_style_profiles(styles: StyleRegistry, config: AppConfig) -> None:
+    missing = sorted(
+        (style.id, style.llm_profile)
+        for style in styles.all()
+        if style.llm_profile is not None and style.llm_profile not in config.llm.profiles
+    )
+    if not missing:
+        return
+    details = ", ".join(f"{style_id} -> {profile}" for style_id, profile in missing)
+    raise ValueError(f"LLM profile not found for prompt template: {details}")
 
 
 def apply_runtime_config(

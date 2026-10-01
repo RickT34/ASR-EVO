@@ -4,13 +4,12 @@ import argparse
 import asyncio
 import sys
 
-from asr_evo.config import INSERT_DEFAULTS, AppConfig
+from asr_evo.config import INSERT_DEFAULTS
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Insert test text at the current macOS cursor.")
     parser.add_argument("text", nargs="?", default="ASR-EVO insert test")
-    parser.add_argument("--config", default="config.toml")
     parser.add_argument(
         "--mode",
         choices=["pasteboard_restore", "accessibility", "unicode_events", "native"],
@@ -18,7 +17,6 @@ def main() -> None:
     )
     parser.add_argument("--fallback", choices=["unicode_events", "pasteboard_restore"], default=None)
     args = parser.parse_args()
-    AppConfig.load(args.config)
     if sys.platform != "darwin":
         raise SystemExit(f"asr-evo-insert-test only supports macOS, not {sys.platform}.")
 

@@ -57,7 +57,7 @@ ASR-EVO 是一个 macOS 优先的轻量级听写助手：通过全局快捷键�
 - Python 3.11+
 - 可用的麦克风
 - macOS 辅助功能权限和麦克风权限
-- ASR 和 LLM 服务的 API Key；两者可以来自不同的 OpenAI-compatible 服务
+- ASR 和各 LLM profile 对应的 API Key
 
 ## 快速开始
 
@@ -73,12 +73,11 @@ cp .env.example .env
 编辑 `.env`：
 
 ```bash
-ASR_API_KEY=your-asr-key
-LLM_API_KEY=your-llm-key
+DASHSCOPE_API_KEY=sk-...
 ```
 
-如果 ASR 和 LLM 共用同一个 DashScope Key，也可以继续只设置
-`DASHSCOPE_API_KEY=sk-...`。它会作为两个独立 Key 未设置时的兼容回退。
+密钥变量名由 `config.toml` 中各服务的 `api_key_env` 决定。接入其他厂家时，
+在 `.env` 增加对应变量即可，不需要把密钥写进 TOML。
 
 启动：
 
@@ -156,11 +155,22 @@ mode = "toggle"
 [asr]
 model = "qwen3-asr-flash"
 base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+api_key_env = "DASHSCOPE_API_KEY"
 
 [llm]
+default_profile = "balanced"
+
+[llm.profiles.fast]
 base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 model = "qwen-plus"
+api_key_env = "DASHSCOPE_API_KEY"
 enable_thinking = false
+
+[llm.profiles.balanced]
+base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+model = "qwen-plus"
+api_key_env = "DASHSCOPE_API_KEY"
+enable_thinking = true
 
 [style]
 mode = "通用润色"
@@ -187,8 +197,29 @@ include_large_request_values = false
 max_request_value_chars = 4000
 ```
 
-`[asr].base_url` 和 `[llm].base_url` 可以指向不同的 OpenAI-compatible API；
-对应密钥分别从 `.env` 的 `ASR_API_KEY` 和 `LLM_API_KEY` 读取。
+每个 `[llm.profiles.<别名>]` 都拥有独立的 `base_url`、`model`、
+`api_key_env` 和 `enable_thinking`。因此不同别名既可以表示同一厂家模型的
+不同思考模式，也可以指向完全不同的兼容服务。`default_profile` 是模板没有
+指定模型别名时的默认选择。
+
+`enable_thinking` 是可选的厂家扩展字段：显式配置时会随请求发送；如果目标
+服务不支持该字段，直接从对应 profile 中删掉即可。
+
+接入另一家服务时，只需新增 profile 和对应环境变量，例如：
+
+```toml
+[llm.profiles.deep]
+base_url = "https://vendor.example/v1"
+model = "vendor-reasoning-model"
+api_key_env = "VENDOR_API_KEY"
+```
+
+```bash
+VENDOR_API_KEY=sk-...
+```
+
+旧的 `[llm].base_url`、`[llm].model` 和 `[llm].enable_thinking` 不再接受；
+它们必须迁移到某个 `[llm.profiles.<别名>]` 下。
 
 macOS 还支持把 `toggle` 设为 `globe` 或 `fn` 并使用 `mode = "hold"`，实现按住地球仪键说话、松开停止。若系统已给地球仪键绑定输入法或听写功能，需要先在系统设置中调整该绑定。
 
@@ -206,6 +237,21 @@ port = 8766
 ## 提示词
 
 所有润色风格都是 `prompts_dir` 目录中的普通 `.md` 文件。文件名去掉扩展名后就是风格 id，也会作为托盘菜单里的显示名。
+
+模板可以用 TOML front matter 选择模型 profile：
+
+```markdown
++++
+llm_profile = "fast"
++++
+
+你是语音转文字结果的轻量润色处理器。
+...
+```
+
+`llm_profile` 必须与 `config.toml` 中 `[llm.profiles.<别名>]` 的别名一致。
+不写 front matter 时使用 `[llm].default_profile`。在确认窗口修改并保存提示词时，
+这段模型元数据会被保留。
 
 示例：
 
@@ -244,9 +290,8 @@ prompts/
 
 ## 隐私边界
 
-ASR-EVO 不把 API Key 写入配置文件。ASR 和 LLM 分别从 `.env` 的
-`ASR_API_KEY`、`LLM_API_KEY` 读取；未设置时都会回退到 `DASHSCOPE_API_KEY`，
-以兼容原有配置。
+ASR-EVO 不把 API Key 写入配置文件。每个 ASR/LLM 配置只保存
+`api_key_env` 变量名，实际密钥统一从 `.env` 或进程环境读取。
 
 需要注意：
 

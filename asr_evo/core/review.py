@@ -79,10 +79,12 @@ class TextReviewService:
     def _previewer(self, result: DictationResult):
         async def preview(request: TextReviewPreviewRequest) -> str:
             self._select_existing_style(request.style_id)
+            style = self.styles.get(request.style_id)
             return await self.llm.polish(
                 result.raw_text,
                 result.context,
                 request.prompt_instruction,
+                profile=style.llm_profile,
             )
 
         return preview

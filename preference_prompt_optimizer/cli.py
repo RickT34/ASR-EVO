@@ -29,13 +29,20 @@ async def async_main(argv: list[str] | None = None) -> int:
     parser.add_argument("--max-rules", type=int, default=8)
     parser.add_argument("--max-exemplars", type=int, default=3)
     parser.add_argument("--rounds", type=int, default=3, help="Number of optimize/score refinement rounds.")
-    parser.add_argument("--model", default="", help="Override config.llm.model for preference optimization.")
+    parser.add_argument(
+        "--profile",
+        default="",
+        help="Use a configured LLM profile instead of config.llm.default_profile.",
+    )
     parser.add_argument("--batch-size", type=int, default=12)
     args = parser.parse_args(argv)
 
     config = AppConfig.load(args.config)
-    if args.model:
-        config = config.model_copy(update={"llm": config.llm.model_copy(update={"model": args.model})})
+    if args.profile:
+        config.llm.profile(args.profile)
+        config = config.model_copy(
+            update={"llm": config.llm.model_copy(update={"default_profile": args.profile})}
+        )
 
     samples = load_jsonl(args.input)
     client = create_llm_provider(config)

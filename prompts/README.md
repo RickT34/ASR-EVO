@@ -2,6 +2,20 @@
 
 把 `.md` 文件放在这个目录。ASR-EVO 会把每个非空文件加载为托盘菜单中的一个处理风格，文件名去掉扩展名后就是菜单标签。子文件夹会显示为子菜单，例如 `写作/邮件.md` 的风格 id 是 `写作/邮件`。
 
+需要为模板指定模型强度时，在文件顶部加入 TOML front matter：
+
+```markdown
++++
+llm_profile = "fast"
++++
+
+这里开始写提示词正文。
+```
+
+`llm_profile` 对应 `config.toml` 中 `[llm.profiles.fast]` 的别名。省略时使用
+`[llm].default_profile`。front matter 只支持 `llm_profile`；在确认窗口保存正文时，
+它会原样保留。
+
 当前模板：
 
 - `忠实轻修.md`：尽量保留原话，只修正明显听写问题。

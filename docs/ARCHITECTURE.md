@@ -21,6 +21,7 @@ asr_evo/
     menu.py                 # platform-neutral menu/status presentation helpers
   providers/
     openai_provider.py      # OpenAI SDK-backed chat completions adapters
+    llm_router.py            # prompt-selected LLM profile routing and lifecycle
     factory.py              # config -> provider instances
   postprocess/
     prompts.py              # message construction for LLM post-processing
@@ -57,7 +58,7 @@ asr-evo-control start|stop|toggle          |
      -> Recorder.record_until_stopped()
      -> ASRProvider.transcribe(audio)
      -> ContextStore.render_for_prompt(app)
-     -> LLMProvider.polish(raw_text, context, prompt_instruction)
+     -> LLMProvider.polish(raw_text, context, prompt_instruction, profile)
      -> TextReviewer.review(request, previewer, saver) when enabled
         -> previewer(style/prompt) may call LLMProvider.polish again
         -> saver(style/prompt) may update prompt files and app bindings
@@ -76,7 +77,9 @@ The localhost control path is intentionally small: commands are `start`, `stop`,
 
 ## Prompt Styles
 
-`StyleRegistry` recursively scans `prompts_dir` for non-empty `.md` files.
+`StyleRegistry` recursively scans `prompts_dir` for non-empty `.md` files. Optional TOML
+front matter declares `llm_profile`; the registry separates metadata from the prompt body
+and preserves it when the review UI saves an edited prompt.
 
 ```text
 prompts/通用润色.md        -> id: 通用润色, label: 通用润色, category: ()
@@ -89,6 +92,11 @@ The tray renders `category` as nested submenus. Runtime stores selected styles b
 [style.app_styles]
 "com.apple.mail" = "情景/邮件"
 ```
+
+`LLMProfileRouter` maps the selected style's profile alias to a provider client. Missing
+metadata routes to `llm.default_profile`; unknown aliases fail explicitly instead of
+silently using another model. Initial polishing, review previews, and history repolishing
+all use this same route.
 
 ## Runtime State
 
@@ -139,7 +147,7 @@ Windows support implements these ports with `pystray`, `pynput`, Tk clipboard ac
 
 - control port
 - macOS and Windows global hotkeys
-- ASR/LLM model and base URL
+- ASR endpoint and named LLM profiles, including model, base URL, and key environment name
 - prompt directory, default style, app bindings
 - context enabled/TTL/max items/max chars/scope
 - review confirmation enabled

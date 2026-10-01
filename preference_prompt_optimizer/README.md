@@ -57,10 +57,9 @@ The JSON output contains:
 - `rounds`: score and prompt snapshot for each refinement round;
 - `report`: sample count, observed edit similarity, and deployment notes.
 
-The CLI loads `config.toml` by default and uses the same LLM configuration and
-`LLM_API_KEY` environment variable as normal polishing, with
-`DASHSCOPE_API_KEY` as a backward-compatible fallback. Use `--config` for
-another config file or `--model` to temporarily override `config.llm.model`.
+The CLI loads `config.toml` by default and uses `config.llm.default_profile`.
+Use `--config` for another config file or `--profile` to select another configured
+profile for an optimization run.
 It reuses the project LLM provider factory, so OpenAI SDK behavior, request
 debugging, and API shape stay aligned with the normal polishing path.
 

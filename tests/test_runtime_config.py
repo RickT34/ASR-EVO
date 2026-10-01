@@ -9,16 +9,17 @@ from asr_evo.providers.factory import provider_config_changed
 
 
 def test_provider_config_change_detection_ignores_local_ui_settings(monkeypatch) -> None:
-    monkeypatch.setenv("DASHSCOPE_API_KEY", "current-key")
+    monkeypatch.setenv("ASR_API_KEY", "current-asr-key")
+    monkeypatch.setenv("LLM_API_KEY", "current-llm-key")
     current = AppConfig()
     ui_only = current.model_copy(deep=True)
     ui_only.review.enabled = False
     provider_update = current.model_copy(deep=True)
-    provider_update.llm.model = "replacement-model"
+    provider_update.llm.profiles["balanced"].model = "replacement-model"
     asr_key_update = current.model_copy(deep=True)
     asr_key_update._asr_api_key = "replacement-asr-key"
     llm_key_update = current.model_copy(deep=True)
-    llm_key_update._llm_api_key = "replacement-llm-key"
+    llm_key_update._llm_profile_api_keys["balanced"] = "replacement-llm-key"
 
     assert provider_config_changed(current, ui_only) is False
     assert provider_config_changed(current, provider_update) is True
@@ -36,7 +37,7 @@ def test_macos_runtime_replaces_providers_after_config_reload(monkeypatch) -> No
     providers = (object(), object())
     monkeypatch.setattr(macos_runtime, "create_providers", lambda config: providers)
     updated = runtime.controller.config.model_copy(deep=True)
-    updated.llm.model = "replacement-model"
+    updated.llm.profiles["balanced"].model = "replacement-model"
 
     runtime.apply_config(updated)
 

@@ -8,9 +8,13 @@ from typing import Literal
 
 import tomli_w
 from dotenv import dotenv_values
-from pydantic import BaseModel, Field, PrivateAttr
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, model_validator
 
 from asr_evo.core.context import ContextStore
+
+
+ASR_API_KEY_ENV = "ASR_API_KEY"
+LLM_API_KEY_ENV = "LLM_API_KEY"
 
 
 class ControlConfig(BaseModel):
@@ -26,12 +30,46 @@ class HotkeyConfig(BaseModel):
 class ASRConfig(BaseModel):
     model: str = "qwen3-asr-flash"
     base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    api_key_env: str = Field(default=ASR_API_KEY_ENV, pattern=r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+class LLMProfileConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    base_url: str
+    model: str
+    api_key_env: str = Field(pattern=r"^[A-Za-z_][A-Za-z0-9_]*$")
+    enable_thinking: bool | None = None
 
 
 class LLMConfig(BaseModel):
-    base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-    model: str = "qwen-plus"
-    enable_thinking: bool = False
+    model_config = ConfigDict(extra="forbid")
+
+    default_profile: str = "balanced"
+    profiles: dict[str, LLMProfileConfig] = Field(
+        default_factory=lambda: {
+            "balanced": LLMProfileConfig(
+                base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+                model="qwen-plus",
+                api_key_env=LLM_API_KEY_ENV,
+            )
+        }
+    )
+
+    @model_validator(mode="after")
+    def validate_profiles(self) -> "LLMConfig":
+        invalid_aliases = [alias for alias in self.profiles if not alias or alias != alias.strip()]
+        if invalid_aliases:
+            raise ValueError("LLM profile aliases must be non-empty and have no surrounding spaces")
+        if self.default_profile not in self.profiles:
+            raise ValueError(f"default LLM profile not found: {self.default_profile}")
+        return self
+
+    def profile(self, alias: str) -> LLMProfileConfig:
+        try:
+            return self.profiles[alias]
+        except KeyError as exc:
+            raise ValueError(f"LLM profile not found: {alias}") from exc
 
 
 class StyleConfig(BaseModel):
@@ -88,9 +126,8 @@ class DebugConfig(BaseModel):
 
 
 class AppConfig(BaseModel):
-    _api_key: str | None = PrivateAttr(default=None)
     _asr_api_key: str | None = PrivateAttr(default=None)
-    _llm_api_key: str | None = PrivateAttr(default=None)
+    _llm_profile_api_keys: dict[str, str | None] = PrivateAttr(default_factory=dict)
 
     control: ControlConfig = ControlConfig()
     hotkey: HotkeyConfig = HotkeyConfig()
@@ -111,27 +148,26 @@ class AppConfig(BaseModel):
             data = tomllib.loads(config_path.read_text(encoding="utf-8"))
         config = cls.model_validate(data)
         dotenv = dotenv_values(".env")
-        config._api_key = _read_api_key(API_KEY_ENV, dotenv)
-        config._asr_api_key = _read_api_key(
-            ASR_API_KEY_ENV,
-            dotenv,
-            fallback=config._api_key,
-        )
-        config._llm_api_key = _read_api_key(
-            LLM_API_KEY_ENV,
-            dotenv,
-            fallback=config._api_key,
-        )
+        config._asr_api_key = _read_api_key(config.asr.api_key_env, dotenv)
+        config._llm_profile_api_keys = {
+            alias: _read_api_key(profile.api_key_env, dotenv)
+            for alias, profile in config.llm.profiles.items()
+        }
         return config
 
-    def api_key(self) -> str | None:
-        return self._api_key or os.getenv(API_KEY_ENV)
-
     def asr_api_key(self) -> str | None:
-        return self._asr_api_key or os.getenv(ASR_API_KEY_ENV) or self.api_key()
+        return self._asr_api_key or os.getenv(self.asr.api_key_env)
 
-    def llm_api_key(self) -> str | None:
-        return self._llm_api_key or os.getenv(LLM_API_KEY_ENV) or self.api_key()
+    def llm_api_key(self, alias: str | None = None) -> str | None:
+        alias = alias or self.llm.default_profile
+        profile = self.llm.profile(alias)
+        return self._llm_profile_api_keys.get(alias) or os.getenv(profile.api_key_env)
+
+    def llm_api_keys(self) -> tuple[tuple[str, str | None], ...]:
+        return tuple(
+            (alias, self.llm_api_key(alias))
+            for alias in sorted(self.llm.profiles)
+        )
 
     def save(self, path: str | Path = "config.toml") -> None:
         config_path = Path(path)
@@ -142,7 +178,7 @@ class AppConfig(BaseModel):
             "control": self.control.model_dump(),
             "hotkey": self.hotkey.model_dump(),
             "asr": self.asr.model_dump(),
-            "llm": self.llm.model_dump(),
+            "llm": self.llm.model_dump(exclude_none=True),
             "style": self.style.model_dump(),
             "context": self.context.model_dump(),
             "review": self.review.model_dump(),
@@ -178,19 +214,12 @@ def _nested_table_key(line: str, section: str) -> str:
     return ""
 
 
-API_KEY_ENV = "DASHSCOPE_API_KEY"
-ASR_API_KEY_ENV = "ASR_API_KEY"
-LLM_API_KEY_ENV = "LLM_API_KEY"
-
-
 def _read_api_key(
     name: str,
     dotenv: dict[str, str | None],
-    *,
-    fallback: str | None = None,
 ) -> str | None:
     dotenv_value = dotenv.get(name)
-    return os.getenv(name) or (str(dotenv_value) if dotenv_value else None) or fallback
+    return os.getenv(name) or (str(dotenv_value) if dotenv_value else None)
 
 
 @dataclass(frozen=True)
@@ -235,12 +264,11 @@ CONFIG_COMMENTS: dict[str, list[str]] = {
         "mode = \"toggle\" 表示按一次切换；mode = \"hold\" 表示按下开始、释放停止。",
     ],
     "asr": [
-        "语音识别服务配置。API Key 优先从 .env 的 ASR_API_KEY 读取。",
-        "未设置时兼容回退到 DASHSCOPE_API_KEY。",
+        "语音识别服务配置。api_key_env 指向 .env 中保存密钥的变量名。",
     ],
     "llm": [
-        "文本润色模型配置。API Key 优先从 .env 的 LLM_API_KEY 读取。",
-        "未设置时兼容回退到 DASHSCOPE_API_KEY。",
+        "文本润色模型配置。每个 [llm.profiles.别名] 都可使用不同服务、模型和密钥变量。",
+        "模板通过 llm_profile 选择别名；未指定时使用 default_profile。",
     ],
     "style": [
         "提示词风格配置。所有风格都来自 prompts_dir 目录中的 .md 文件。",
@@ -278,6 +306,8 @@ FIELD_COMMENTS: dict[tuple[str, str], list[str]] = {
     ("context", "max_chars"): ["最多传入多少个上下文字数。"],
     ("context", "scope"): ["上下文范围：app 表示同一应用，window 表示同一窗口，time 表示仅按时间。"],
     ("llm", "enable_thinking"): ["是否开启模型思考模式；默认关闭以减少延迟和额外输出。"],
+    ("asr", "api_key_env"): ["指定 .env 中保存 ASR 密钥的变量名。"],
+    ("llm", "default_profile"): ["模板未指定 llm_profile 时使用的模型别名。"],
     ("debug", "include_large_request_values"): [
         "设为 true 会打印完整大字段，例如音频 base64；只建议临时排查时开启。"
     ],

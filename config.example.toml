@@ -12,19 +12,28 @@ enabled = true
 toggle = "ctrl+alt+space"
 mode = "toggle"
 
-# 语音识别服务配置。API Key 优先从 .env 的 ASR_API_KEY 读取。
-# 未设置时兼容回退到 DASHSCOPE_API_KEY。
+# 语音识别服务配置。api_key_env 指向 .env 中保存密钥的变量名。
 [asr]
 model = "qwen3-asr-flash"
 base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+api_key_env = "DASHSCOPE_API_KEY"
 
-# 文本润色模型配置。API Key 优先从 .env 的 LLM_API_KEY 读取。
-# 未设置时兼容回退到 DASHSCOPE_API_KEY。
+# 文本润色模型配置。每个 profile 都可使用不同服务、模型和密钥变量。
+# 模板通过 llm_profile 选择别名；未指定时使用 default_profile。
 [llm]
+default_profile = "balanced"
+
+[llm.profiles.fast]
 base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 model = "qwen-plus"
-# 是否开启模型思考模式；默认关闭以减少延迟和额外输出。
+api_key_env = "DASHSCOPE_API_KEY"
 enable_thinking = false
+
+[llm.profiles.balanced]
+base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+model = "qwen-plus"
+api_key_env = "DASHSCOPE_API_KEY"
+enable_thinking = true
 
 # 提示词风格配置。所有风格都来自 prompts_dir 目录中的 .md 文件。
 # 风格 id 是提示词文件名去掉扩展名，例如 通用润色.md 对应 通用润色。

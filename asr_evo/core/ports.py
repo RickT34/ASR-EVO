@@ -66,7 +66,14 @@ class ASRProvider(Protocol):
 
 
 class LLMProvider(Protocol):
-    async def polish(self, raw_text: str, context: str, prompt_instruction: str) -> str: ...
+    async def polish(
+        self,
+        raw_text: str,
+        context: str,
+        prompt_instruction: str,
+        *,
+        profile: str | None = None,
+    ) -> str: ...
 
 
 class TextInserter(Protocol):

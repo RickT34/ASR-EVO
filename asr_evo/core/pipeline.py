@@ -67,6 +67,7 @@ class DictationDependencies:
 class DictationOptions:
     style: str
     prompt_instruction: str
+    llm_profile: str | None = None
     context_enabled: bool = True
     cleanup_audio: bool = True
 
@@ -130,6 +131,7 @@ class DictationPipeline:
                 transcript_text,
                 context,
                 self.options.prompt_instruction,
+                profile=self.options.llm_profile,
             )
 
             record = DictationRecord.create(

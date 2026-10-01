@@ -20,7 +20,7 @@ class OpenAIChatCompletionsLLMProvider:
         api_key: str,
         base_url: str,
         model: str,
-        enable_thinking: bool = False,
+        enable_thinking: bool | None = None,
         timeout_seconds: float = 30,
         request_debug: RemoteRequestDebugOptions | None = None,
     ) -> None:
@@ -54,8 +54,9 @@ class OpenAIChatCompletionsLLMProvider:
             "model": self.model,
             "messages": messages,
             "temperature": temperature,
-            "enable_thinking": self.enable_thinking,
         }
+        if self.enable_thinking is not None:
+            payload["enable_thinking"] = self.enable_thinking
         if response_format is not None:
             payload["response_format"] = response_format
         dump_remote_request(
@@ -67,10 +68,11 @@ class OpenAIChatCompletionsLLMProvider:
             options=self.request_debug,
         )
         sdk_payload = dict(payload)
-        sdk_payload.pop("enable_thinking")
+        sdk_payload.pop("enable_thinking", None)
+        if self.enable_thinking is not None:
+            sdk_payload["extra_body"] = {"enable_thinking": self.enable_thinking}
         response = await self.client.chat.completions.create(
             **sdk_payload,
-            extra_body={"enable_thinking": self.enable_thinking},
         )
         content = response.choices[0].message.content or ""
         return content.strip()

@@ -112,12 +112,13 @@ response.
 To run the real LLM API integration test:
 
 ```bash
-.venv/bin/python -m pytest tests/preference_prompt_optimizer -m integration
+ASR_EVO_RUN_LLM_INTEGRATION=1 \
+  .venv/bin/python -m pytest tests/preference_prompt_optimizer -m integration
 ```
 
-The optimizer CLI and integration test use `config.toml` plus `LLM_API_KEY`,
-with `DASHSCOPE_API_KEY` as a backward-compatible fallback. Pass `--model` to
-the CLI only when you want to temporarily override `config.llm.model`.
+The optimizer CLI and integration test use `config.toml` plus the key variable
+named by the selected profile's `api_key_env`. Pass `--profile` to the CLI when
+you want to use a profile other than `config.llm.default_profile`.
 
 For repo-wide verification:
 

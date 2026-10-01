@@ -45,14 +45,30 @@ class FakeASR:
 class FakeLLM:
     def __init__(self) -> None:
         self.context = None
+        self.profile = None
 
-    async def polish(self, raw_text: str, context: str, prompt_instruction: str) -> str:
+    async def polish(
+        self,
+        raw_text: str,
+        context: str,
+        prompt_instruction: str,
+        *,
+        profile: str | None = None,
+    ) -> str:
         self.context = context
+        self.profile = profile
         return f"final:{raw_text}"
 
 
 class FailingLLM:
-    async def polish(self, raw_text: str, context: str, prompt_instruction: str) -> str:
+    async def polish(
+        self,
+        raw_text: str,
+        context: str,
+        prompt_instruction: str,
+        *,
+        profile: str | None = None,
+    ) -> str:
         raise RuntimeError("remote failed")
 
 
@@ -119,12 +135,14 @@ async def test_pipeline_disables_context_and_deletes_audio(tmp_path: Path) -> No
         options=DictationOptions(
             style="polished",
             prompt_instruction="整理为自然清楚的中文。",
+            llm_profile="fast",
             context_enabled=False,
         ),
     ).run_once()
 
     assert result.final_text == "final:raw"
     assert llm.context == ""
+    assert llm.profile == "fast"
     assert not audio.exists()
 
 

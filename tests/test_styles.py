@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from asr_evo.postprocess.styles import StyleRegistry
 
 
@@ -56,6 +58,40 @@ def test_style_registry_updates_prompt_file_and_cache(tmp_path: Path) -> None:
     assert updated.prompt == "new prompt"
     assert registry.get("work-chat").prompt == "new prompt"
     assert prompt_file.read_text(encoding="utf-8") == "new prompt\n"
+
+
+def test_style_registry_loads_profile_metadata_and_preserves_it_on_save(tmp_path: Path) -> None:
+    prompts = tmp_path / "prompts"
+    prompts.mkdir()
+    prompt_file = prompts / "deep.md"
+    prompt_file.write_text(
+        '+++\nllm_profile = "deep"\n+++\n\nUse careful reasoning.\n',
+        encoding="utf-8",
+    )
+    registry = StyleRegistry(prompts_dir=prompts)
+
+    style = registry.get("deep")
+    assert style.llm_profile == "deep"
+    assert style.prompt == "Use careful reasoning."
+
+    registry.update_prompt("deep", "Updated prompt.")
+
+    assert prompt_file.read_text(encoding="utf-8") == (
+        '+++\nllm_profile = "deep"\n+++\n\nUpdated prompt.\n'
+    )
+    assert registry.get("deep").llm_profile == "deep"
+
+
+def test_style_registry_rejects_invalid_front_matter(tmp_path: Path) -> None:
+    prompts = tmp_path / "prompts"
+    prompts.mkdir()
+    (prompts / "invalid.md").write_text(
+        '+++\nllm_profile = "deep"\nPrompt without closing metadata.',
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="front matter is not closed"):
+        StyleRegistry(prompts_dir=prompts)
 
 
 def test_style_registry_raises_when_no_prompt_files_exist(tmp_path: Path) -> None:

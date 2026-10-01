@@ -54,10 +54,7 @@ def feedback_from_exception(exc: Exception, *, raw_text_saved: bool = False) -> 
     ):
         title = "缺少 API Key"
         detail = ".env 中没有读取到对应服务的 API Key。"
-        suggestion = (
-            "请在 .env 添加 ASR_API_KEY 和 LLM_API_KEY；两者共用密钥时也可只设置 "
-            "DASHSCOPE_API_KEY。然后重启应用或重新加载配置。"
-        )
+        suggestion = "请检查 config.toml 中的 api_key_env，并在 .env 添加对应变量后重新加载配置。"
     elif "network error" in lower_message or "timed out" in lower_message or "timeout" in lower_message:
         title = "网络连接失败"
         detail = "连接 ASR/LLM 服务时失败或超时。"
@@ -65,7 +62,7 @@ def feedback_from_exception(exc: Exception, *, raw_text_saved: bool = False) -> 
     elif _has_status_code(lower_message, 401, 403):
         title = "服务鉴权失败"
         detail = "ASR/LLM 服务拒绝了当前请求。"
-        suggestion = "请检查对应的 ASR_API_KEY 或 LLM_API_KEY 是否正确、是否有模型权限或额度。"
+        suggestion = "请检查对应 profile 的 api_key_env、模型权限和服务额度。"
     elif _has_status_code(lower_message, 429):
         title = "请求过于频繁"
         detail = "服务端触发了限流。"
@@ -94,6 +91,10 @@ def feedback_from_exception(exc: Exception, *, raw_text_saved: bool = False) -> 
         title = "文本插入失败"
         detail = "无法通过键盘事件方式输入文本。"
         suggestion = "请检查辅助功能权限，或切回默认 pasteboard_restore 插入方式。"
+    elif "llm profile not found" in lower_message or "default llm profile not found" in lower_message:
+        title = "模型配置不可用"
+        detail = "提示词选择的 LLM profile 不存在。"
+        suggestion = "请检查模板中的 llm_profile 与 config.toml 中的 profile 别名是否一致。"
     elif "style not found" in lower_message or "prompt files" in lower_message:
         title = "提示词风格不可用"
         detail = "当前选择或绑定的提示词风格不存在。"

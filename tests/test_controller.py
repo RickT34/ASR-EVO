@@ -8,9 +8,13 @@ from pathlib import Path
 
 import pytest
 
-from asr_evo.config import AppConfig
+from asr_evo.config import AppConfig, LLMProfileConfig
 from asr_evo.core.context import ContextStore, DictationRecord
-from asr_evo.core.controller import DesktopControllerDependencies, DesktopDictationController
+from asr_evo.core.controller import (
+    DesktopControllerDependencies,
+    DesktopDictationController,
+    prepare_runtime_config,
+)
 from asr_evo.core.errors import PermissionDeniedError
 from asr_evo.core.ports import (
     AppContext,
@@ -82,6 +86,7 @@ async def test_controller_previews_review_prompt_and_persists_selected_style(
         ("raw", "", "polish"),
         ("raw", "", "custom email prompt"),
     ]
+    assert deps.llm_provider.profiles == [None, "deep"]
     assert deps.inserter.text == "user edited email"
     assert records[0]["final_text"] == "preview:custom email prompt:raw"
     assert records[0]["user_edited_text"] == "user edited email"
@@ -99,7 +104,7 @@ async def test_controller_saves_review_prompt_and_current_app_style(tmp_path: Pa
     await controller.run_pipeline_once()
 
     assert (tmp_path / "prompts" / "情景" / "邮件.md").read_text(encoding="utf-8") == (
-        "saved email prompt\n"
+        '+++\nllm_profile = "deep"\n+++\n\nsaved email prompt\n'
     )
     assert AppConfig.load(tmp_path / "config.toml").style.app_styles["com.example.App"] == "情景/邮件"
     assert deps.text_reviewer.save_result == TextReviewSaveResult(
@@ -254,7 +259,7 @@ async def test_controller_repolishes_history_without_calling_asr(tmp_path: Path)
         started_at=datetime.now(UTC),
         raw_text="saved raw",
         final_text="old final",
-        style="通用润色",
+        style="情景/邮件",
         app_context=AppContext(bundle_id="com.example.App", app_name="Example"),
     )
     deps.history_store.add(record)
@@ -265,7 +270,22 @@ async def test_controller_repolishes_history_without_calling_asr(tmp_path: Path)
     assert updated is not None
     assert updated["final_text"] == "final:saved raw"
     assert deps.asr_provider.audios == []
+    assert deps.llm_provider.profiles[-1] == "deep"
     assert deps.tray.states[-1] == ("idle", "已重新润色")
+
+
+def test_runtime_config_rejects_prompt_with_unknown_llm_profile(tmp_path: Path) -> None:
+    prompts = tmp_path / "prompts"
+    prompts.mkdir()
+    (prompts / "unknown.md").write_text(
+        '+++\nllm_profile = "missing"\n+++\n\nprompt\n',
+        encoding="utf-8",
+    )
+    config = AppConfig()
+    config.style.prompts_dir = str(prompts)
+
+    with pytest.raises(ValueError, match="unknown -> missing"):
+        prepare_runtime_config(config, "unknown")
 
 
 async def test_controller_archives_audio_when_asr_fails(tmp_path: Path) -> None:
@@ -415,8 +435,16 @@ def _make_controller(
     (prompts / "通用润色.md").write_text("polish", encoding="utf-8")
     scene = prompts / "情景"
     scene.mkdir()
-    (scene / "邮件.md").write_text("email", encoding="utf-8")
+    (scene / "邮件.md").write_text(
+        '+++\nllm_profile = "deep"\n+++\n\nemail\n',
+        encoding="utf-8",
+    )
     config = AppConfig()
+    config.llm.profiles["deep"] = LLMProfileConfig(
+        base_url="https://deep.example.test/v1",
+        model="deep-model",
+        api_key_env="DEEP_API_KEY",
+    )
     config.style.prompts_dir = str(prompts)
     deps = _Deps(
         tray=FakeTray(),
@@ -576,10 +604,19 @@ class FakeASR:
 class FakeLLM:
     def __init__(self) -> None:
         self.calls: list[tuple[str, str, str]] = []
+        self.profiles: list[str | None] = []
         self.closed = False
 
-    async def polish(self, raw_text: str, context: str, prompt_instruction: str) -> str:
+    async def polish(
+        self,
+        raw_text: str,
+        context: str,
+        prompt_instruction: str,
+        *,
+        profile: str | None = None,
+    ) -> str:
         self.calls.append((raw_text, context, prompt_instruction))
+        self.profiles.append(profile)
         if prompt_instruction.startswith("custom"):
             return f"preview:{prompt_instruction}:{raw_text}"
         return f"final:{raw_text}"

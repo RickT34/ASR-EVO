@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+
 import pytest
 
 from asr_evo.config import AppConfig
@@ -126,9 +128,12 @@ async def test_optimizer_runs_multiple_rounds_and_keeps_best_score() -> None:
 
 @pytest.mark.integration
 async def test_optimizer_uses_real_llm_api_when_configured() -> None:
+    if os.environ.get("ASR_EVO_RUN_LLM_INTEGRATION") != "1":
+        pytest.skip("Set ASR_EVO_RUN_LLM_INTEGRATION=1 to run the real LLM API test.")
     config = AppConfig.load()
     if not config.llm_api_key():
-        pytest.skip("Set LLM_API_KEY or DASHSCOPE_API_KEY to run the real LLM API test.")
+        profile = config.llm.profile(config.llm.default_profile)
+        pytest.skip(f"Set {profile.api_key_env} to run the real LLM API test.")
 
     client = create_llm_provider(config)
     optimizer = PreferencePromptOptimizer(LLMPreferenceExtractor(client, batch_size=2))

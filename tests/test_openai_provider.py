@@ -100,6 +100,29 @@ async def test_llm_complete_json_uses_openai_client_and_response_format(capsys) 
     assert "Bearer test" not in captured.err
 
 
+async def test_llm_omits_vendor_thinking_field_when_not_configured() -> None:
+    provider = OpenAIChatCompletionsLLMProvider(
+        api_key="test",
+        base_url="https://example.test/v1",
+        model="generic-model",
+    )
+    client = FakeOpenAIClient(
+        SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content="done"))],
+        )
+    )
+    provider.client = client
+
+    result = await provider.complete_messages([{"role": "user", "content": "Polish."}])
+
+    assert result == "done"
+    assert client.kwargs == {
+        "model": "generic-model",
+        "messages": [{"role": "user", "content": "Polish."}],
+        "temperature": 0.2,
+    }
+
+
 class FakeOpenAIClient:
     def __init__(self, response) -> None:
         self.response = response

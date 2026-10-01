@@ -8,7 +8,19 @@ from preference_prompt_optimizer import cli
 async def test_cli_uses_project_config_and_provider_factory(tmp_path, monkeypatch) -> None:
     config_path = tmp_path / "config.toml"
     config_path.write_text(
-        '[llm]\nbase_url = "https://example.test/v1"\nmodel = "configured-model"\n',
+        """[llm]
+default_profile = "balanced"
+
+[llm.profiles.balanced]
+base_url = "https://balanced.example.test/v1"
+model = "balanced-model"
+api_key_env = "BALANCED_API_KEY"
+
+[llm.profiles.fast]
+base_url = "https://fast.example.test/v1"
+model = "fast-model"
+api_key_env = "FAST_API_KEY"
+""",
         encoding="utf-8",
     )
     data_path = tmp_path / "samples.jsonl"
@@ -31,8 +43,10 @@ async def test_cli_uses_project_config_and_provider_factory(tmp_path, monkeypatc
     created = {}
 
     def fake_create_llm_provider(config):
-        created["base_url"] = config.llm.base_url
-        created["model"] = config.llm.model
+        profile = config.llm.profile(config.llm.default_profile)
+        created["profile"] = config.llm.default_profile
+        created["base_url"] = profile.base_url
+        created["model"] = profile.model
         return ScriptedJSONClient()
 
     monkeypatch.setattr(cli, "create_llm_provider", fake_create_llm_provider)
@@ -42,8 +56,8 @@ async def test_cli_uses_project_config_and_provider_factory(tmp_path, monkeypatc
             str(data_path),
             "--config",
             str(config_path),
-            "--model",
-            "override-model",
+            "--profile",
+            "fast",
             "--rounds",
             "1",
             "-o",
@@ -52,7 +66,11 @@ async def test_cli_uses_project_config_and_provider_factory(tmp_path, monkeypatc
     )
 
     assert result == 0
-    assert created == {"base_url": "https://example.test/v1", "model": "override-model"}
+    assert created == {
+        "profile": "fast",
+        "base_url": "https://fast.example.test/v1",
+        "model": "fast-model",
+    }
     payload = json.loads(output_path.read_text(encoding="utf-8"))
     assert payload["score"] == 0.7
 
