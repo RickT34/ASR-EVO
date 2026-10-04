@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 from asr_evo.config import PROVIDER_DEFAULTS, AppConfig, LLMProfileConfig
+from asr_evo.core.ports import ASRProvider
+from asr_evo.providers.dashscope_filetrans import DashScopeFileTransASRProvider
+from asr_evo.providers.dashscope_message import DashScopeMessageASRProvider
 from asr_evo.providers.llm_router import LLMProfileRouter
 from asr_evo.providers.local_asr import QwenLocalASRProvider
 from asr_evo.providers.ollama_provider import OllamaLLMProvider
@@ -14,20 +17,20 @@ from .openai_provider import (
 
 def create_providers(
     config: AppConfig,
-) -> tuple[OpenAIChatCompletionsASRProvider | QwenLocalASRProvider, LLMProfileRouter]:
+) -> tuple[ASRProvider, LLMProfileRouter]:
     return create_asr_provider(config), create_llm_provider(config)
 
 
 def provider_config_changed(current: AppConfig, updated: AppConfig) -> bool:
     return (
         current.asr,
-        current.llm,
+        current.llm.model_dump(exclude={"auto_polish"}),
         current.debug,
         current.asr_api_key(),
         current.llm_api_keys(),
     ) != (
         updated.asr,
-        updated.llm,
+        updated.llm.model_dump(exclude={"auto_polish"}),
         updated.debug,
         updated.asr_api_key(),
         updated.llm_api_keys(),
@@ -47,7 +50,7 @@ def create_llm_provider(config: AppConfig) -> LLMProfileRouter:
     return LLMProfileRouter(default_provider=default_provider, profiles=profiles)
 
 
-def create_asr_provider(config: AppConfig) -> OpenAIChatCompletionsASRProvider | QwenLocalASRProvider:
+def create_asr_provider(config: AppConfig) -> ASRProvider:
     if config.asr.backend == "qwen_local":
         return QwenLocalASRProvider(config.asr)
     api_key = config.asr_api_key()
@@ -55,6 +58,10 @@ def create_asr_provider(config: AppConfig) -> OpenAIChatCompletionsASRProvider |
         raise RuntimeError(
             f"Missing ASR API key in ${config.asr.api_key_env}. Add it to .env."
         )
+    if config.asr.backend == "dashscope_message":
+        return DashScopeMessageASRProvider(config.asr, api_key)
+    if config.asr.backend == "dashscope_filetrans":
+        return DashScopeFileTransASRProvider(config.asr, api_key)
     return OpenAIChatCompletionsASRProvider(
         api_key=api_key,
         model=config.asr.model,
@@ -107,3 +114,20 @@ def _missing_llm_api_key(api_key_env: str, alias: str) -> RuntimeError:
     return RuntimeError(
         f"Missing LLM API key for profile '{alias}' in ${api_key_env}. Add it to .env."
     )
+
+
+def create_streaming_asr_provider(config: AppConfig):
+    from asr_evo.providers.dashscope_streaming import DashScopeStreamingASRProvider
+    from asr_evo.providers.qwen_streaming import QwenStreamingASRProvider
+
+    streaming = config.realtime_asr
+    if streaming.backend == "qwen_local":
+        return QwenStreamingASRProvider(streaming)
+    if streaming.backend == "dashscope":
+        api_key = config.realtime_asr_api_key()
+        if not api_key:
+            raise RuntimeError(f"请在 .env 中配置流式 ASR 密钥 {streaming.api_key_env}")
+        if not streaming.url.startswith("wss://"):
+            raise ValueError("realtime_asr.url 必须是 wss:// 流式 API 地址")
+        return DashScopeStreamingASRProvider(streaming, api_key)
+    raise RuntimeError("请先配置 [realtime_asr]，选择 qwen_local 或 dashscope 流式后端")

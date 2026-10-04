@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import queue
 import subprocess
 import sys
 import threading
@@ -11,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from asr_evo.core.ports import (
+    LiveTextReview,
     TextReviewPreviewRequest,
     TextReviewPreviewer,
     TextReviewRequest,
@@ -41,6 +43,8 @@ class TkTextReviewer:
         request: TextReviewRequest,
         previewer: TextReviewPreviewer,
         saver: TextReviewSaver,
+        *,
+        live: LiveTextReview | None = None,
     ) -> TextReviewResult | None:
         process = await self.process_factory(
             *_review_child_command(),
@@ -48,31 +52,52 @@ class TkTextReviewer:
         )
         if process.stdin is None or process.stdout is None:
             raise ReviewProcessProtocolError("text review process pipes were not created")
-        await _write_json_line(process.stdin, {"type": "init", "request": asdict(request)})
+        pushing = None
 
-        while True:
-            line = await process.stdout.readline()
-            if not line:
-                stderr = await _read_process_stderr(process)
-                raise ReviewProcessProtocolError(
-                    parse_review_process_error(process.returncode, stderr)
-                )
-            message = _loads_json_line(line)
-            message_type = message.get("type")
-            if message_type == "preview":
-                await self._handle_preview_request(process.stdin, message, previewer)
-            elif message_type == "save":
-                await self._handle_save_request(process.stdin, message, saver)
-            elif message_type == "confirm":
-                await _close_stdin(process.stdin)
-                await _wait_process(process)
-                return _review_result_from_message(message)
-            elif message_type == "cancel":
-                await _close_stdin(process.stdin)
-                await _wait_process(process)
-                return None
-            else:
-                raise ReviewProcessProtocolError(f"unexpected review message: {message_type}")
+        async def push_updates():
+            while True:
+                update = await live.updates.get()
+                await _write_json_line(process.stdin, {"type": "live_update", **asdict(update)})
+                if update.finished:
+                    return
+
+        try:
+            await _write_json_line(process.stdin, {
+                "type": "init", "request": asdict(request), "live": live is not None,
+            })
+            if live is not None:
+                pushing = asyncio.create_task(push_updates())
+            while True:
+                line = await process.stdout.readline()
+                if not line:
+                    stderr = await _read_process_stderr(process)
+                    raise ReviewProcessProtocolError(
+                        parse_review_process_error(process.returncode, stderr)
+                    )
+                message = _loads_json_line(line)
+                message_type = message.get("type")
+                if message_type == "preview":
+                    await self._handle_preview_request(process.stdin, message, previewer)
+                elif message_type == "save":
+                    await self._handle_save_request(process.stdin, message, saver)
+                elif message_type == "stop" and live is not None:
+                    live.stop()
+                elif message_type in {"confirm", "cancel"}:
+                    await _close_stdin(process.stdin)
+                    await _wait_process(process)
+                    return _review_result_from_message(message) if message_type == "confirm" else None
+                else:
+                    raise ReviewProcessProtocolError(f"unexpected review message: {message_type}")
+        finally:
+            if pushing is not None:
+                pushing.cancel()
+                await asyncio.gather(pushing, return_exceptions=True)
+            if process.returncode is None:
+                try:
+                    process.kill()
+                except ProcessLookupError:
+                    pass
+                await process.communicate()
 
     async def _handle_preview_request(
         self,
@@ -266,7 +291,7 @@ def review_confirmation_ready(*, io_busy: bool, preview_scheduled: bool) -> bool
     return not io_busy and not preview_scheduled
 
 
-def show_text_review(request: TextReviewRequest) -> TextReviewResult | None:
+def show_text_review(request: TextReviewRequest, *, live: bool = False) -> TextReviewResult | None:
     import tkinter as tk
     from tkinter import ttk
     from tkinter.scrolledtext import ScrolledText
@@ -280,12 +305,14 @@ def show_text_review(request: TextReviewRequest) -> TextReviewResult | None:
     last_preview = {"text": request.polished_text}
     prompt_expanded = {"value": False}
     io_busy = {"value": False}
+    live_active = {"value": live}
+    incoming = queue.Queue()
     pending_preview = {"value": False}
     prompt_after_id = {"value": ""}
 
     root = tk.Tk(className="ae_textreview")
     _configure_tk_fonts(root)
-    root.title("确认文本")
+    root.title("实时转写润色" if live else "确认文本")
     root.geometry("860x500")
     root.minsize(680, 420)
     root.attributes("-topmost", True)
@@ -301,7 +328,7 @@ def show_text_review(request: TextReviewRequest) -> TextReviewResult | None:
     main.rowconfigure(3, weight=0)
 
     ttk.Label(main, text="转写原文").grid(row=0, column=0, sticky="w")
-    ttk.Label(main, text="润色后文本").grid(row=0, column=1, sticky="w", padx=(10, 0))
+    ttk.Label(main, text="输出文本").grid(row=0, column=1, sticky="w", padx=(10, 0))
 
     raw_box = ScrolledText(main, wrap="word", height=10, font="TkTextFont")
     raw_box.insert("1.0", request.raw_text)
@@ -333,6 +360,8 @@ def show_text_review(request: TextReviewRequest) -> TextReviewResult | None:
     style_box.grid(row=0, column=2, sticky="e", padx=(10, 8))
     save_button = ttk.Button(controls, text="保存", command=lambda: request_save())
     save_button.grid(row=0, column=3, sticky="e")
+    polish_button = ttk.Button(controls, text="润色一次", command=lambda: request_preview())
+    polish_button.grid(row=0, column=4, sticky="e", padx=(8, 0))
 
     prompt_box = ScrolledText(main, wrap="word", undo=True, height=8, font="TkTextFont")
     prompt_box.insert("1.0", current_style.prompt or request.prompt_instruction)
@@ -361,13 +390,17 @@ def show_text_review(request: TextReviewRequest) -> TextReviewResult | None:
 
     def set_busy(value: bool) -> None:
         io_busy["value"] = value
-        state = "disabled" if value else "normal"
+        locked = value or live_active["value"]
+        state = "disabled" if locked else "normal"
         save_button.configure(state=state)
-        style_box.configure(state="disabled" if value else ("readonly" if request.styles else "disabled"))
-        confirm_disabled = value or bool(prompt_after_id["value"])
+        polish_button.configure(state=state)
+        style_box.configure(state="disabled" if locked else ("readonly" if request.styles else "disabled"))
+        confirm_disabled = locked or bool(prompt_after_id["value"])
         ok_button.configure(state="disabled" if confirm_disabled else "normal")
 
     def request_preview(event: object | None = None) -> str:
+        if live_active["value"]:
+            return "break"
         # An explicit refresh/style change replaces any debounced preview.
         if prompt_after_id["value"]:
             root.after_cancel(prompt_after_id["value"])
@@ -388,13 +421,11 @@ def show_text_review(request: TextReviewRequest) -> TextReviewResult | None:
                 "prompt_instruction": prompt_box.get("1.0", "end-1c"),
             }
         )
-        threading.Thread(
-            target=lambda: wait_for_preview_response(request_id),
-            daemon=True,
-        ).start()
         return "break"
 
     def schedule_preview() -> None:
+        if not request.auto_polish:
+            return
         if prompt_after_id["value"]:
             root.after_cancel(prompt_after_id["value"])
         ok_button.configure(state="disabled")
@@ -406,7 +437,7 @@ def show_text_review(request: TextReviewRequest) -> TextReviewResult | None:
         prompt_after_id["value"] = root.after(600, run_preview)
 
     def request_save(event: object | None = None) -> str:
-        if io_busy["value"]:
+        if live_active["value"] or io_busy["value"]:
             return "break"
         request_counter["value"] += 1
         request_id = str(request_counter["value"])
@@ -421,39 +452,50 @@ def show_text_review(request: TextReviewRequest) -> TextReviewResult | None:
                 "prompt_instruction": prompt_box.get("1.0", "end-1c"),
             }
         )
-        threading.Thread(
-            target=lambda: wait_for_save_response(request_id),
-            daemon=True,
-        ).start()
         return "break"
 
-    def wait_for_preview_response(request_id: str) -> None:
-        line = sys.stdin.readline()
-        if not line:
-            root.after(0, lambda: finish_preview_error("父进程已断开"))
-            return
-        try:
-            message = json.loads(line)
-        except json.JSONDecodeError:
-            root.after(0, lambda: finish_preview_error("响应格式错误"))
-            return
-        if str(message.get("id", "")) != request_id:
-            return
-        root.after(0, lambda: finish_preview(message))
+    def read_messages() -> None:
+        # Only one reader owns stdin. Tk widgets are updated only on the UI thread.
+        for line in sys.stdin:
+            try:
+                incoming.put(json.loads(line))
+            except json.JSONDecodeError:
+                incoming.put({"type": "disconnected", "message": "响应格式错误"})
+                return
+        incoming.put({"type": "disconnected", "message": "父进程已断开"})
 
-    def wait_for_save_response(request_id: str) -> None:
-        line = sys.stdin.readline()
-        if not line:
-            root.after(0, lambda: finish_save_error("父进程已断开"))
-            return
-        try:
-            message = json.loads(line)
-        except json.JSONDecodeError:
-            root.after(0, lambda: finish_save_error("响应格式错误"))
-            return
-        if str(message.get("id", "")) != request_id:
-            return
-        root.after(0, lambda: finish_save(message))
+    def poll_messages() -> None:
+        while not incoming.empty():
+            message = incoming.get_nowait()
+            kind = message.get("type")
+            if kind == "live_update":
+                raw_box.configure(state="normal")
+                raw_box.delete("1.0", "end")
+                raw_box.insert("1.0", str(message.get("raw_text", "")))
+                raw_box.see("end")
+                raw_box.configure(state="disabled")
+                polished_box.configure(state="normal")
+                last_preview["text"] = str(message.get("polished_text", ""))
+                set_polished_text(last_preview["text"])
+                live_active["value"] = not message.get("finished", False)
+                if not message.get("recording", True):
+                    stop_button.configure(state="disabled")
+                if live_active["value"]:
+                    polished_box.configure(state="disabled")
+                else:
+                    stop_button.grid_remove()
+                    prompt_box.configure(state="normal")
+                    set_busy(False)
+                status_var.set(str(message.get("status", "")))
+            elif kind == "disconnected":
+                status_var.set(str(message.get("message", "父进程已断开")))
+                return
+            elif str(message.get("id", "")) == str(request_counter["value"]):
+                if kind in {"preview_result", "preview_error"}:
+                    finish_preview(message)
+                elif kind in {"save_result", "save_error"}:
+                    finish_save(message)
+        root.after(50, poll_messages)
 
     def finish_preview(message: dict[str, Any]) -> None:
         set_busy(False)
@@ -467,10 +509,6 @@ def show_text_review(request: TextReviewRequest) -> TextReviewResult | None:
             return
         status_var.set(f"预览失败：{message.get('message', '未知错误')}")
 
-    def finish_preview_error(message: str) -> None:
-        set_busy(False)
-        status_var.set(f"预览失败：{message}")
-
     def finish_save(message: dict[str, Any]) -> None:
         set_busy(False)
         if message.get("type") == "save_result":
@@ -478,16 +516,13 @@ def show_text_review(request: TextReviewRequest) -> TextReviewResult | None:
             return
         status_var.set(f"保存失败：{message.get('message', '未知错误')}")
 
-    def finish_save_error(message: str) -> None:
-        set_busy(False)
-        status_var.set(f"保存失败：{message}")
-
     def on_style_selected(event: object | None = None) -> None:
         style = selected_style()
         prompt_box.delete("1.0", "end")
         prompt_box.insert("1.0", style.prompt)
         prompt_box.edit_modified(False)
-        request_preview()
+        if request.auto_polish:
+            request_preview()
 
     def on_prompt_modified(event: object | None = None) -> None:
         if prompt_box.edit_modified():
@@ -507,7 +542,7 @@ def show_text_review(request: TextReviewRequest) -> TextReviewResult | None:
         return "break"
 
     def confirm(event: object | None = None) -> str:
-        if not review_confirmation_ready(
+        if live_active["value"] or not review_confirmation_ready(
             io_busy=io_busy["value"],
             preview_scheduled=bool(prompt_after_id["value"]),
         ):
@@ -530,6 +565,14 @@ def show_text_review(request: TextReviewRequest) -> TextReviewResult | None:
         root.destroy()
         return "break"
 
+    def stop_recording() -> None:
+        stop_button.configure(state="disabled")
+        status_var.set("正在完成转写和润色…")
+        _send_stdout({"type": "stop"})
+
+    stop_button = ttk.Button(buttons, text="停止录音", command=stop_recording)
+    if live:
+        stop_button.grid(row=0, column=2, padx=(8, 0))
     cancel_button = ttk.Button(buttons, text="取消", command=cancel)
     cancel_button.grid(row=0, column=0, padx=(0, 8))
     ok_button = ttk.Button(buttons, text="确定", command=confirm, default="active")
@@ -553,6 +596,13 @@ def show_text_review(request: TextReviewRequest) -> TextReviewResult | None:
         polished_box.mark_set("insert", "end-1c")
         polished_box.see("insert")
 
+    if live:
+        set_busy(False)
+        prompt_box.configure(state="disabled")
+        polished_box.configure(state="disabled")
+        status_var.set("正在录音，等待流式识别…")
+    threading.Thread(target=read_messages, daemon=True).start()
+    root.after(50, poll_messages)
     root.after(50, focus_text)
     root.mainloop()
     return result["value"]
@@ -637,6 +687,7 @@ def _request_from_message(message: dict[str, Any]) -> TextReviewRequest:
         prompt_instruction=str(payload.get("prompt_instruction", "")),
         styles=styles,
         context=str(payload.get("context", "")),
+        auto_polish=bool(payload.get("auto_polish", True)),
     )
 
 
@@ -654,8 +705,9 @@ def main() -> int:
         init_line = sys.stdin.readline()
         if not init_line:
             raise ReviewProcessProtocolError("missing init message")
-        request = _request_from_message(json.loads(init_line))
-        result = show_text_review(request)
+        init = json.loads(init_line)
+        request = _request_from_message(init)
+        result = show_text_review(request, live=bool(init.get("live")))
     except Exception as exc:
         print(exc, file=sys.stderr)
         return 1

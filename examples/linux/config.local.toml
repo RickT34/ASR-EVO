@@ -1,7 +1,7 @@
 # 从项目根目录启动。首次配置时复制为 config.toml；已有配置请合并所需段落。
 [linux]
+paste_shortcut = "ctrl+v" # 终端通常使用 ctrl+shift+v
 tray = "waybar" # 改为 standard 显示普通 AppIndicator 托盘；切换后重启
-paste_shortcut = "ctrl+v" # 终端通常需要 ctrl+shift+v
 
 [hotkey]
 enabled = false # Linux 通过 Hyprland/桌面设置绑定 asr-evo-control

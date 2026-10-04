@@ -28,7 +28,7 @@ class HotkeyConfig(BaseModel):
 
 
 class ASRConfig(BaseModel):
-    backend: Literal["openai", "qwen_local"] = "openai"
+    backend: Literal["openai", "qwen_local", "dashscope_filetrans", "dashscope_message"] = "openai"
     model: str = "qwen3-asr-flash"
     base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
     api_key_env: str = Field(default=ASR_API_KEY_ENV, pattern=r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -36,6 +36,18 @@ class ASRConfig(BaseModel):
     dtype: Literal["auto", "float32", "float16", "bfloat16"] = "auto"
     language: str = ""
     python_executable: str = ""
+    timeout_seconds: float = Field(default=600, gt=0)
+
+
+class RealtimeASRConfig(BaseModel):
+    backend: Literal["disabled", "qwen_local", "dashscope"] = "disabled"
+    model: str = "qwen3-asr-flash-realtime"
+    url: str = "wss://dashscope.aliyuncs.com/api-ws/v1/realtime"
+    api_key_env: str = Field(default="ASR_REALTIME_API_KEY", pattern=r"^[A-Za-z_][A-Za-z0-9_]*$")
+    language: str = ""
+    python_executable: str = ""
+    chunk_size_seconds: float = Field(default=2.0, ge=0.1, le=30)
+    gpu_memory_utilization: float = Field(default=0.5, gt=0, lt=1)
     timeout_seconds: float = Field(default=600, gt=0)
 
 
@@ -59,6 +71,7 @@ class LLMProfileConfig(BaseModel):
 class LLMConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    auto_polish: bool = True
     default_profile: str = "balanced"
     profiles: dict[str, LLMProfileConfig] = Field(
         default_factory=lambda: {
@@ -110,10 +123,20 @@ class ContextConfig(BaseModel):
 
 class ReviewConfig(BaseModel):
     enabled: bool = True
+    realtime_enabled: bool = False
+    polish_interval_seconds: float = Field(default=5.0, ge=0.5, le=300)
 
 
 class AudioConfig(BaseModel):
     input_device: str | int = ""
+    noise_suppression: bool = False
+    input_gain_db: float = Field(default=0, ge=-12, le=36)
+    denoise_mix: float = Field(default=0.85, ge=0, le=1)
+
+    def processing_options(self):
+        from asr_evo.audio.enhancement import AudioProcessingOptions
+
+        return AudioProcessingOptions(self.noise_suppression, self.input_gain_db, self.denoise_mix)
 
 
 class StatusConfig(BaseModel):
@@ -141,12 +164,14 @@ class DebugConfig(BaseModel):
 
 class AppConfig(BaseModel):
     _asr_api_key: str | None = PrivateAttr(default=None)
+    _realtime_asr_api_key: str | None = PrivateAttr(default=None)
     _llm_profile_api_keys: dict[str, str | None] = PrivateAttr(default_factory=dict)
 
     control: ControlConfig = ControlConfig()
     hotkey: HotkeyConfig = HotkeyConfig()
     linux: LinuxConfig = LinuxConfig()
     asr: ASRConfig = ASRConfig()
+    realtime_asr: RealtimeASRConfig = RealtimeASRConfig()
     llm: LLMConfig = LLMConfig()
     style: StyleConfig = StyleConfig()
     context: ContextConfig = ContextConfig()
@@ -164,11 +189,15 @@ class AppConfig(BaseModel):
         config = cls.model_validate(data)
         dotenv = dotenv_values(".env")
         config._asr_api_key = _read_api_key(config.asr.api_key_env, dotenv)
+        config._realtime_asr_api_key = _read_api_key(config.realtime_asr.api_key_env, dotenv)
         config._llm_profile_api_keys = {
             alias: _read_api_key(profile.api_key_env, dotenv)
             for alias, profile in config.llm.profiles.items()
         }
         return config
+
+    def realtime_asr_api_key(self) -> str | None:
+        return self._realtime_asr_api_key or os.getenv(self.realtime_asr.api_key_env)
 
     def asr_api_key(self) -> str | None:
         return self._asr_api_key or os.getenv(self.asr.api_key_env)
@@ -194,6 +223,7 @@ class AppConfig(BaseModel):
             "hotkey": self.hotkey.model_dump(),
             "linux": self.linux.model_dump(),
             "asr": self.asr.model_dump(),
+            "realtime_asr": self.realtime_asr.model_dump(),
             "llm": self.llm.model_dump(exclude_none=True),
             "style": self.style.model_dump(),
             "context": self.context.model_dump(),
@@ -317,6 +347,15 @@ CONFIG_COMMENTS: dict[str, list[str]] = {
 
 
 FIELD_COMMENTS: dict[tuple[str, str], list[str]] = {
+    ("audio", "noise_suppression"): ["本地 RNNoise 降噪，需 RNNoise 0.2+ 系统库；实时和普通录音共用。"],
+    ("audio", "input_gain_db"): ["输入增益 dB；仅在麦克风声音偏小时提高。内置峰值保护。"],
+    ("audio", "denoise_mix"): ["降噪混合比例：0.85 表示 85% 降噪信号 + 15% 对齐原声。"],
+    ("llm", "auto_polish"): ["实时、非实时统一的自动润色开关；关闭后确认窗口仍可手动润色。"],
+    ("asr", "backend"): ["openai / qwen_local / dashscope_filetrans / dashscope_message；百炼接口配置见 docs/FILETRANS.md 和 docs/MESSAGE.md。"],
+    ("review", "realtime_enabled"): ["实时转写润色开关；需要单独配置 realtime_asr，录音时打开确认窗口。"],
+    ("review", "polish_interval_seconds"): ["实时模式润色间隔（秒）；同一时间只执行一个请求，无新文字不重复调用。"],
+    ("realtime_asr", "backend"): ["disabled / dashscope / qwen_local；独立于普通 asr。参见 docs/REALTIME.md。"],
+    ("realtime_asr", "python_executable"): ["本地流式推理使用的 vLLM Python 环境，留空使用应用解释器。"],
     ("style", "app_styles"): [
         "按应用绑定风格，key 是 bundle id，value 是风格 id。",
         "示例：{ \"com.apple.TextEdit\" = \"通用润色\", \"md.obsidian\" = \"会议纪要\", \"com.apple.mail\" = \"写作/邮件\" }",

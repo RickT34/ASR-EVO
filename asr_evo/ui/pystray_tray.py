@@ -49,6 +49,8 @@ class PystrayStatusTray:
         self._input_devices = []
         self._selected_input_device_id = ""
         self._review_enabled = True
+        self._realtime_enabled = False
+        self._auto_polish = True
         self._app_binding_title = APP_BINDING_UNKNOWN_TITLE
         self._error_feedback: ErrorFeedback | None = None
         self._state = "idle"
@@ -102,6 +104,14 @@ class PystrayStatusTray:
         self.status_config = status_config
         self.set_state(self._state)
 
+    def set_auto_polish(self, enabled: bool) -> None:
+        self._auto_polish = enabled
+        self._publish_menu()
+
+    def set_realtime_enabled(self, enabled: bool) -> None:
+        self._realtime_enabled = enabled
+        self._publish_menu()
+
     def set_review_enabled(self, enabled: bool) -> None:
         self._review_enabled = enabled
         self._publish_menu()
@@ -143,11 +153,22 @@ class PystrayStatusTray:
         items.extend(
             [
                 self._input_device_menu(),
+                pystray.MenuItem(command_title(MenuCommand.MICROPHONE_TEST), _action(self.actions.microphone_test)),
                 self._prompt_menu(),
+                pystray.MenuItem(
+                    command_title(MenuCommand.TOGGLE_AUTO_POLISH),
+                    _action(self.actions.toggle_auto_polish),
+                    checked=lambda item: self._auto_polish,
+                ),
                 pystray.MenuItem(
                     command_title(MenuCommand.TOGGLE_REVIEW),
                     _action(self.actions.toggle_review),
                     checked=lambda item: self._review_enabled,
+                ),
+                pystray.MenuItem(
+                    command_title(MenuCommand.TOGGLE_REALTIME),
+                    _action(self.actions.toggle_realtime),
+                    checked=lambda item: self._realtime_enabled,
                 ),
                 pystray.Menu.SEPARATOR,
                 self._stats_menu(),

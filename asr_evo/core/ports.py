@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
+import asyncio
+from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
@@ -8,6 +9,7 @@ from typing import TYPE_CHECKING, Protocol
 from asr_evo.core.errors import ErrorFeedback
 
 if TYPE_CHECKING:
+    from asr_evo.audio.enhancement import AudioProcessingOptions
     from asr_evo.core.context import DictationRecord
     from asr_evo.postprocess.styles import StyleDefinition
 
@@ -52,9 +54,15 @@ class Recorder(Protocol):
 class DesktopRecorder(Recorder, Protocol):
     input_device: str
 
+    async def record_until_stopped(
+        self, on_chunk: Callable[[bytes], None] | None = None,
+    ) -> AudioClip: ...
+
     def stop(self) -> None: ...
 
     def set_input_device(self, device_id: str | int | None) -> None: ...
+
+    def set_processing(self, options: AudioProcessingOptions) -> None: ...
 
     def input_devices(self) -> list[InputDeviceSummary]: ...
 
@@ -63,6 +71,12 @@ class DesktopRecorder(Recorder, Protocol):
 
 class ASRProvider(Protocol):
     async def transcribe(self, audio: AudioClip) -> Transcript: ...
+
+
+class StreamingASRProvider(Protocol):
+    def stream(self, chunks: AsyncIterator[bytes]) -> AsyncIterator[Transcript]:
+        """Consume mono 16 kHz signed little-endian PCM16; yield cumulative text."""
+        ...
 
 
 class LLMProvider(Protocol):
@@ -95,6 +109,7 @@ class TextReviewRequest:
     prompt_instruction: str
     styles: list[TextReviewStyle]
     context: str = ""
+    auto_polish: bool = True
 
 
 @dataclass(frozen=True)
@@ -126,12 +141,30 @@ TextReviewPreviewer = Callable[[TextReviewPreviewRequest], Awaitable[str]]
 TextReviewSaver = Callable[[TextReviewSaveRequest], Awaitable[TextReviewSaveResult]]
 
 
+@dataclass(frozen=True)
+class TextReviewUpdate:
+    raw_text: str
+    polished_text: str
+    status: str
+    finished: bool = False
+    recording: bool = True
+
+
+@dataclass
+class LiveTextReview:
+    updates: asyncio.Queue[TextReviewUpdate]
+    stop: Callable[[], None]
+    raw_text: str = ""
+
+
 class TextReviewer(Protocol):
     async def review(
         self,
         request: TextReviewRequest,
         previewer: TextReviewPreviewer,
         saver: TextReviewSaver,
+        *,
+        live: LiveTextReview | None = None,
     ) -> TextReviewResult | None: ...
 
 
@@ -153,6 +186,10 @@ class StatusTray(TrayUI, Protocol):
     def set_status_config(self, status_config: object) -> None: ...
 
     def set_review_enabled(self, enabled: bool) -> None: ...
+
+    def set_realtime_enabled(self, enabled: bool) -> None: ...
+
+    def set_auto_polish(self, enabled: bool) -> None: ...
 
     def set_input_devices(
         self,

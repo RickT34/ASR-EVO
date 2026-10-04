@@ -15,12 +15,12 @@ mode = "toggle"
 # Linux 由桌面/合成器绑定 asr-evo-control，不注册内置全局快捷键。
 # standard 显示普通托盘；waybar 配合 examples/linux/waybar.jsonc。切换后重启。
 [linux]
+paste_shortcut = "ctrl+v" # 终端通常使用 ctrl+shift+v
 tray = "standard"
-paste_shortcut = "ctrl+v"
 
 # 语音识别服务配置。api_key_env 指向 .env 中保存密钥的变量名。
 [asr]
-backend = "openai" # 本地 Qwen3-ASR 用 qwen_local，见 examples/linux/config.local.toml
+backend = "openai" # 另可选 qwen_local、dashscope_filetrans、dashscope_message（见 docs/MESSAGE.md）
 model = "qwen3-asr-flash"
 base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 api_key_env = "DASHSCOPE_API_KEY"
@@ -28,6 +28,8 @@ api_key_env = "DASHSCOPE_API_KEY"
 # 文本润色模型配置。每个 profile 都可使用不同服务、模型和密钥变量。
 # 模板通过 llm_profile 选择别名；未指定时使用 default_profile。
 [llm]
+# 实时、非实时统一的自动润色开关；关闭后仍可在确认窗口点击“润色一次”。
+auto_polish = true
 default_profile = "balanced"
 
 [llm.profiles.fast]
@@ -78,11 +80,19 @@ scope = "app"
 # 确认后再记录用户最终文本并插入到当前光标处。
 [review]
 enabled = true
+# 实时模式独立使用 realtime_asr；开启后开始录音即显示确认窗口。
+realtime_enabled = false
+polish_interval_seconds = 5.0
 
 # 录音输入配置。input_device 为空表示跟随系统默认输入设备。
 # 也可以填写 sounddevice 设备编号；在托盘菜单切换后会自动保存。
 [audio]
 input_device = ""
+# 开启需安装 RNNoise 0.2+ 系统库；默认关闭，不改变现有录音音量。
+noise_suppression = false
+input_gain_db = 0.0
+# 1.0 为完整降噪，0.85 保留 15% 对齐原声以减少弱音吞字。
+denoise_mix = 0.85
 
 # 状态栏图标和提示文字。symbol 目前由 macOS 映射到 SF Symbols；Windows 托盘使用内置状态图标和这些提示文字。
 [status]
@@ -109,3 +119,16 @@ dump_remote_requests = false
 include_large_request_values = false
 # 普通字符串超过这个长度会被截断。
 max_request_value_chars = 4000
+
+# 实时 ASR 专用接口，不能使用普通 ASR 的 HTTP 文件转写接口。
+# 完整云端、本地 Qwen3-ASR-0.6B（vLLM）示例见 docs/REALTIME.md。
+[realtime_asr]
+backend = "disabled" # disabled / dashscope / qwen_local
+url = "wss://dashscope.aliyuncs.com/api-ws/v1/realtime"
+model = "qwen3-asr-flash-realtime"
+api_key_env = "ASR_REALTIME_API_KEY"
+language = ""
+python_executable = ""
+chunk_size_seconds = 2.0
+gpu_memory_utilization = 0.5
+timeout_seconds = 600

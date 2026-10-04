@@ -59,3 +59,18 @@ def test_stream_sample_rate_falls_back_to_device_default(monkeypatch) -> None:
     monkeypatch.setattr("asr_evo.audio.recorder.sd.query_devices", query_devices)
 
     assert _stream_sample_rate("2", channels=1, preferred_sample_rate=16000) == 48000
+
+
+def test_streaming_resampler_preserves_continuity_and_flushes_tail():
+    import numpy as np
+    import soxr
+    from asr_evo.audio.pcm import PCM16StreamEncoder
+
+    frames = (np.sin(np.arange(48000) * 0.01) * 0.2).astype("float32")
+    encoder = PCM16StreamEncoder(48000)
+    pieces = [encoder.encode(frames[i:i + 4800, None]) for i in range(0, len(frames), 4800)]
+    pieces.append(encoder.finish())
+    result = np.frombuffer(b"".join(pieces), dtype="<i2")
+    expected = PCM16StreamEncoder._pcm(soxr.resample(frames, 48000, 16000))
+    assert len(result) == 16000
+    np.testing.assert_allclose(result, np.frombuffer(expected, dtype="<i2"), atol=1)

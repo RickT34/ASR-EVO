@@ -29,10 +29,13 @@ class AppStatsMenuItem(Protocol):
 
 class MenuCommand(StrEnum):
     TOGGLE_REVIEW = "toggle_review"
+    TOGGLE_REALTIME = "toggle_realtime"
+    TOGGLE_AUTO_POLISH = "toggle_auto_polish"
     REVEAL_PROMPTS = "reveal_prompts"
     CLEAR_APP_STYLE = "clear_app_style"
     RELOAD_CONFIG = "reload_config"
     OPEN_CONFIG = "open_config"
+    MICROPHONE_TEST = "microphone_test"
     REFRESH_STATS = "refresh_stats"
     COPY_HISTORY_RAW = "copy_history_raw"
     COPY_HISTORY_FINAL = "copy_history_final"
@@ -54,10 +57,13 @@ class MenuCommandSpec:
 @dataclass(frozen=True)
 class TrayMenuActions:
     toggle_review: Callable[[], None]
+    toggle_realtime: Callable[[], None]
+    toggle_auto_polish: Callable[[], None]
     select_style: Callable[[str], None]
     reveal_prompts: Callable[[], None]
     reload_config: Callable[[], None]
     open_config: Callable[[], None]
+    microphone_test: Callable[[], None]
     refresh_input_devices: Callable[[], None]
     select_input_device: Callable[[str], None]
     clear_app_style: Callable[[], None]
@@ -109,6 +115,18 @@ NO_INPUT_DEVICES_TITLE = "未找到输入设备"
 NO_HISTORY_RECORDS_TITLE = "暂无历史记录"
 
 MENU_COMMAND_SPECS = {
+    MenuCommand.MICROPHONE_TEST: MenuCommandSpec(
+        command=MenuCommand.MICROPHONE_TEST,
+        title="麦克风测试…",
+    ),
+    MenuCommand.TOGGLE_AUTO_POLISH: MenuCommandSpec(
+        command=MenuCommand.TOGGLE_AUTO_POLISH,
+        title="LLM 自动润色",
+    ),
+    MenuCommand.TOGGLE_REALTIME: MenuCommandSpec(
+        command=MenuCommand.TOGGLE_REALTIME,
+        title="实时转写润色模式",
+    ),
     MenuCommand.TOGGLE_REVIEW: MenuCommandSpec(
         command=MenuCommand.TOGGLE_REVIEW,
         title="插入前确认文本",
@@ -147,7 +165,7 @@ MENU_COMMAND_SPECS = {
     ),
     MenuCommand.RETRANSCRIBE_HISTORY: MenuCommandSpec(
         command=MenuCommand.RETRANSCRIBE_HISTORY,
-        title="重新转写并润色",
+        title="重新转写",
     ),
     MenuCommand.REPOLISH_HISTORY: MenuCommandSpec(
         command=MenuCommand.REPOLISH_HISTORY,

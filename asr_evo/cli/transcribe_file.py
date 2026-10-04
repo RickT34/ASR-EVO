@@ -44,20 +44,23 @@ async def _run(audio_path: Path, config: AppConfig) -> None:
         duration_seconds=float(info.duration),
     )
     asr = create_asr_provider(config)
-    llm = create_llm_provider(config)
+    llm = create_llm_provider(config) if config.llm.auto_polish else None
     styles = StyleRegistry(prompts_dir=config.style.prompts_dir)
     style = styles.get(StyleBindingService(config=config, styles=styles).current_style_id)
     try:
         transcript = await asr.transcribe(clip)
-        final_text = await llm.polish(
-            transcript.text,
-            context="",
-            prompt_instruction=style.prompt,
-            profile=style.llm_profile,
-        )
+        final_text = transcript.text
+        if llm is not None:
+            final_text = await llm.polish(
+                transcript.text,
+                context="",
+                prompt_instruction=style.prompt,
+                profile=style.llm_profile,
+            )
     finally:
         await asr.aclose()
-        await llm.aclose()
+        if llm is not None:
+            await llm.aclose()
 
     print("Raw transcript:")
     print(transcript.text)

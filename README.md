@@ -16,7 +16,7 @@ ASR-EVO 是一个支持 macOS、Windows 与 Linux 的轻量级听写助手：通
 - **可改的提示词文件**：每个风格都是本地 `.md` 文件，不需要改代码。
 - **带上下文润色**：模型能看到同一应用最近几分钟的听写内容，减少指代不清和前后风格不一致。
 - **历史可回看**：远程 API 或插入失败时，原始转写仍会保存，减少“说了一大段结果丢了”的挫败感。
-- **平台原生输入**：macOS/Windows 默认粘贴后恢复剪贴板；Linux 保留结果文本以便重贴。
+- **平台原生输入**：macOS/Windows 默认粘贴后恢复剪贴板；Linux 复制文本后发送粘贴快捷键，结果保留在剪贴板中。
 
 ## 使用例子
 
@@ -301,7 +301,7 @@ ASR-EVO 不把 API Key 写入配置文件。每个 ASR/LLM 配置只保存
 - 原始转写、历史上下文和提示词会发送给 LLM provider。
 - 听写历史保存在本地 SQLite，包含原始转写、润色结果、可采集到的用户修订，以及 `data/recordings/` 中原始录音的相对路径。
 - 原始录音长期保存在本机 `data/recordings/`，不会自动清理；重新转写时会再次发送给 ASR provider。
-- macOS/Windows 默认短暂使用系统剪贴板并恢复；Linux 将最终文本保留在剪贴板。
+- macOS/Windows 默认短暂使用系统剪贴板并恢复；Linux 复制文本并模拟粘贴，最终文本保留在剪贴板。
 
 `.env`、`config.toml` 和 `data/` 已被 `.gitignore` 排除。发布或提交代码前请确认没有把个人配置、API Key 或历史数据库加入 Git。
 
@@ -331,7 +331,7 @@ include_large_request_values = true
 
 ## 插入策略
 
-默认插入方式是 `pasteboard_restore`：
+macOS 默认插入方式是 `pasteboard_restore`：
 
 1. 快照当前剪贴板内容。
 2. 将最终文本放入剪贴板。
@@ -388,3 +388,17 @@ include_large_request_values = true
 ## 开源许可
 
 MIT License。见 [LICENSE](LICENSE)。
+
+### 实时转写润色
+
+开启托盘或 Waybar 菜单中的「实时转写润色模式」，开始录音时即显示确认窗口，左侧流式转写、右侧定时润色。支持本地 Qwen3-ASR-0.6B 的 vLLM 流式接口，或独立配置的百炼实时 WebSocket API；详见 [实时模式配置](docs/REALTIME.md)。
+
+非实时 Filetrans 模型请使用独立的 `dashscope_filetrans` 后端，参见 [原生文件转写配置](docs/FILETRANS.md)。
+
+托盘中的「LLM 自动润色」开关同时控制实时与非实时模式。关闭后直接使用转写原文；确认窗口仍可通过「润色一次」按钮或 Ctrl+R 手动润色。配置项为 `[llm] auto_polish = false`。
+
+`qwen-audio-3.1-asr-flash-message` 请使用独立的 `dashscope_message` 后端，详见 [Message 模型配置](docs/MESSAGE.md)。
+
+录音支持可选的本地 RNNoise 降噪和输入增益，实时与普通听写共用，详见 [音频增强说明](docs/AUDIO.md)。已有录音可通过 `python -m asr_evo.cli.enhance_audio` 另存降噪版本。
+
+托盘和 Waybar 菜单中的「麦克风测试…」可打开独立监听窗口，边听边调整输入增益、降噪开关和混合比例，确认后保存设置。详见 [麦克风测试说明](docs/AUDIO.md#麦克风测试窗口)。

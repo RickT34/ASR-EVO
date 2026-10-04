@@ -221,3 +221,11 @@ async def test_asr_shutdown_reaps_an_active_verbose_worker(worker):
             await task
     assert processes[0].returncode is not None
     assert provider._process is None
+
+
+def test_auto_polish_toggle_does_not_replace_provider_clients():
+    from asr_evo.providers.factory import provider_config_changed
+    config = AppConfig()
+    updated = config.model_copy(deep=True)
+    updated.llm.auto_polish = False
+    assert not provider_config_changed(config, updated)

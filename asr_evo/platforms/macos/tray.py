@@ -82,6 +82,18 @@ class MacOSStatusTray:
             title=command_title(MenuCommand.OPEN_CONFIG),
             action=actions.open_config,
         )
+        self.auto_polish_item = _MenuTargetItem.create(
+            title=command_title(MenuCommand.TOGGLE_AUTO_POLISH),
+            action=actions.toggle_auto_polish,
+        )
+        self.microphone_test_item = _MenuTargetItem.create(
+            title=command_title(MenuCommand.MICROPHONE_TEST),
+            action=actions.microphone_test,
+        )
+        self.realtime_item = _MenuTargetItem.create(
+            title=command_title(MenuCommand.TOGGLE_REALTIME),
+            action=actions.toggle_realtime,
+        )
         self.review_item = _MenuTargetItem.create(
             title=command_title(MenuCommand.TOGGLE_REVIEW),
             action=actions.toggle_review,
@@ -116,8 +128,11 @@ class MacOSStatusTray:
         self.menu.addItem_(self.control_item)
         self.menu.addItem_(self.error_menu_item)
         self.menu.addItem_(self.input_device_menu_item)
+        self.menu.addItem_(self.microphone_test_item.item)
         self.menu.addItem_(self.prompt_menu_item)
         self.menu.addItem_(self.review_item.item)
+        self.menu.addItem_(self.realtime_item.item)
+        self.menu.addItem_(self.auto_polish_item.item)
         self.menu.addItem_(NSMenuItem.separatorItem())
         self.menu.addItem_(self.stats_menu_item)
         self.menu.addItem_(self.history_menu_item)
@@ -212,6 +227,16 @@ class MacOSStatusTray:
         if _call_on_main_thread(self.set_status_config, status_config):
             return
         self.status_config = status_config
+
+    def set_auto_polish(self, enabled: bool) -> None:
+        if _call_on_main_thread(self.set_auto_polish, enabled):
+            return
+        self.auto_polish_item.item.setState_(1 if enabled else 0)
+
+    def set_realtime_enabled(self, enabled: bool) -> None:
+        if _call_on_main_thread(self.set_realtime_enabled, enabled):
+            return
+        self.realtime_item.item.setState_(1 if enabled else 0)
 
     def set_review_enabled(self, enabled: bool) -> None:
         if _call_on_main_thread(self.set_review_enabled, enabled):

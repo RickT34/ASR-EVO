@@ -33,9 +33,10 @@ from asr_evo.platforms.macos.hotkey import MacOSHotkeyListener
 from asr_evo.platforms.macos.inserter import MacOSTextInserter
 from asr_evo.platforms.macos.permissions import MacOSPermissions
 from asr_evo.platforms.macos.tray import MacOSStatusTray
-from asr_evo.providers.factory import create_providers, provider_config_changed
+from asr_evo.providers.factory import create_streaming_asr_provider, create_providers, provider_config_changed
 from asr_evo.storage.history import HistoryStore
 from asr_evo.ui.text_review import TkTextReviewer
+from asr_evo.ui.microphone_test import show_microphone_test
 
 MAIN_THREAD_TIMEOUT_SECONDS = 2
 
@@ -56,6 +57,7 @@ class MacOSDictationRuntime:
                 sample_rate=AUDIO_DEFAULTS.sample_rate,
                 channels=AUDIO_DEFAULTS.channels,
                 input_device=config.audio.input_device,
+                processing=config.audio.processing_options(),
             ),
             asr_provider=asr_provider,
             llm_provider=llm_provider,
@@ -65,6 +67,8 @@ class MacOSDictationRuntime:
                 restore_delay_ms=INSERT_DEFAULTS.restore_delay_ms,
             ),
             text_reviewer=TkTextReviewer(),
+            microphone_tester=show_microphone_test,
+            streaming_asr_factory=lambda: create_streaming_asr_provider(self.controller.config),
             app_provider=MacOSFrontmostAppProvider(),
             history_store=HistoryStore(STORAGE_DEFAULTS.database_path),
             context_store=config.context.store(),

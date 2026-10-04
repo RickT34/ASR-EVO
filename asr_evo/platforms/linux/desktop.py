@@ -47,7 +47,7 @@ class LinuxDesktop:
             except RuntimeError as exc:
                 # Lua-mode Hyprland rejects legacy syntax before executing it.
                 # Retry only this explicit syntax rejection, never an arbitrary
-                # failed paste (which might already have reached the target).
+                # failed command (which might already have reached the target).
                 if "dispatch in lua is a shorthand" not in str(exc):
                     raise
                 self._lua_dispatch = True
@@ -112,11 +112,7 @@ class LinuxDesktop:
     def accessibility_trusted(self, *, prompt: bool = False) -> bool:
         required = (
             ["wl-copy", "hyprctl" if self.hyprland else "wtype"]
-            if self.wayland
-            else [
-                "xclip",
-                "xdotool",
-            ]
+            if self.wayland else ["xclip", "xdotool"]
         )
         self._missing = [name for name in required if not shutil.which(name)]
         return not self._missing
@@ -143,6 +139,8 @@ class LinuxTextInserter:
         await asyncio.to_thread(self._insert, text)
 
     def _insert(self, text: str) -> None:
+        if not text:
+            return
         address = self.target.get("address")
         if address and self.desktop.hyprland:
             selector = json.dumps(f"address:{address}")
@@ -158,10 +156,8 @@ class LinuxTextInserter:
         if self.desktop.hyprland:
             modifiers = "CTRL SHIFT" if shifted else "CTRL"
             self.desktop.dispatch(
-                "sendshortcut",
-                f"{modifiers}, V, activewindow",
-                f'hl.dsp.send_shortcut({{mods = "{modifiers}", key = "V", '
-                'window = "activewindow"})',
+                "sendshortcut", f"{modifiers}, V, activewindow",
+                f'hl.dsp.send_shortcut({{mods = "{modifiers}", key = "V", window = "activewindow"}})',
             )
         elif self.desktop.wayland:
             args = ["wtype", "-M", "ctrl"]

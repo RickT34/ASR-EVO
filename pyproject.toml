@@ -35,14 +35,20 @@ linux = [
   "PyGObject>=3.46",
 ]
 local-asr = ["qwen-asr>=0.0.6"]
+realtime = ["websockets>=14", "soxr>=0.5"]
+audio-enhancement = ["soxr>=0.5"]
+local-asr-streaming = ["qwen-asr[vllm]>=0.0.6", "soxr>=0.5"]
 dev = [
   "pytest>=8.2",
   "pytest-asyncio>=0.23",
   "ruff>=0.5",
+  "websockets>=14",
+  "soxr>=0.5",
 ]
 
 [project.scripts]
 asr-evo = "asr_evo.app:main"
+asr-evo-enhance = "asr_evo.cli.enhance_audio:main"
 asr-evo-control = "asr_evo.cli.control:main"
 asr-evo-transcribe = "asr_evo.cli.transcribe_file:main"
 asr-evo-insert-test = "asr_evo.cli.insert_test:main"

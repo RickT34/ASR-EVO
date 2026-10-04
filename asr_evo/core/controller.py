@@ -3,13 +3,13 @@ from __future__ import annotations
 import asyncio
 import concurrent.futures
 import inspect
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, replace
 from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
-from asr_evo.config import AppConfig
+from asr_evo.config import AppConfig, AudioConfig
 from asr_evo.core.context import ContextStore
 from asr_evo.core.control import CONTROL_COMMANDS, ControlResult
 from asr_evo.core.errors import ErrorFeedback, PermissionDeniedError, feedback_from_exception
@@ -36,8 +36,10 @@ from asr_evo.core.ports import (
     StatusTray,
     TextInserter,
     TextReviewer,
+    StreamingASRProvider,
 )
 from asr_evo.core.review import TextReviewService
+from asr_evo.core.realtime import RealtimeDictationSession
 from asr_evo.core.state import DictationState
 from asr_evo.core.style_binding import StyleBindingService
 from asr_evo.postprocess.styles import StyleRegistry
@@ -66,6 +68,8 @@ class DesktopControllerDependencies:
     file_exporter: FileExporter
     permissions: PermissionChecker
     lifecycle: AppLifecycle
+    microphone_tester: Callable[[AudioConfig, Callable[[AudioConfig], None]], Awaitable[None]] | None = None
+    streaming_asr_factory: Callable[[], StreamingASRProvider] | None = None
     config_loader: Callable[[], AppConfig] = AppConfig.load
     config_path: Path = Path("config.toml")
     on_config_applied: Callable[[AppConfig], None] | None = None
@@ -89,6 +93,9 @@ class DesktopDictationController:
         self.dependencies = dependencies
         self.loop = loop
         self.state = RuntimeState()
+        self._pipeline_task: asyncio.Task | None = None
+        self._microphone_test_future = None
+        self._microphone_test_task = None
         self.styles = StyleRegistry(prompts_dir=config.style.prompts_dir)
         _validate_style_profiles(self.styles, config)
         self.style_bindings = StyleBindingService(config=config, styles=self.styles)
@@ -96,10 +103,13 @@ class DesktopDictationController:
     def tray_actions(self) -> TrayMenuActions:
         return TrayMenuActions(
             toggle_review=self.toggle_review,
+            toggle_realtime=self.toggle_realtime,
+            toggle_auto_polish=self.toggle_auto_polish,
             select_style=self.select_style,
             reveal_prompts=self.reveal_prompts_dir,
             reload_config=self.reload_config,
             open_config=self.open_config_file,
+            microphone_test=self.open_microphone_test,
             refresh_input_devices=self.refresh_input_devices,
             select_input_device=self.select_input_device,
             clear_app_style=self.clear_current_app_style,
@@ -138,6 +148,9 @@ class DesktopDictationController:
         self.start_dictation()
 
     def start_dictation(self) -> None:
+        if self._microphone_test_running():
+            self.dependencies.tray.set_state(self.state.state.value, "请先关闭麦克风测试窗口再开始听写")
+            return
         if self.state.state == DictationState.ERROR:
             self.clear_error()
         if self.state.state != DictationState.IDLE:
@@ -197,11 +210,76 @@ class DesktopDictationController:
         self.styles.prompts_dir.mkdir(parents=True, exist_ok=True)
         self.dependencies.file_opener.open_path(self.styles.prompts_dir)
 
+    def _microphone_test_running(self) -> bool:
+        return self._microphone_test_future is not None and not self._microphone_test_future.done()
+
+    def open_microphone_test(self) -> None:
+        if self._microphone_test_running():
+            self.dependencies.tray.set_state(self.state.state.value, "麦克风测试窗口已打开")
+            return
+        if self.state.state not in {DictationState.IDLE, DictationState.ERROR}:
+            self.dependencies.tray.set_state(self.state.state.value, "请结束当前听写后打开麦克风测试")
+            return
+        self._microphone_test_future = asyncio.run_coroutine_threadsafe(self._run_microphone_test(), self.loop)
+
+    async def _run_microphone_test(self) -> None:
+        self._microphone_test_task = asyncio.current_task()
+        try:
+            if self.dependencies.microphone_tester is None:
+                raise RuntimeError("当前平台未配置麦克风测试窗口")
+            await self.dependencies.microphone_tester(
+                self.config.audio.model_copy(deep=True), self._save_microphone_settings,
+            )
+        except Exception as exc:
+            self._show_error(exc)
+        finally:
+            self._microphone_test_task = None
+
+    def _save_microphone_settings(self, audio: AudioConfig) -> None:
+        if self.state.state not in {DictationState.IDLE, DictationState.ERROR}:
+            raise RuntimeError("听写进行中，无法保存录音参数")
+        self.apply_config(self.config.model_copy(update={"audio": audio}), persist=True)
+
     def open_config_file(self) -> None:
         if not self.dependencies.config_path.exists():
             self.config.save(self.dependencies.config_path)
         self.dependencies.file_opener.open_path(self.dependencies.config_path)
         self.dependencies.tray.set_state(self.state.state.value, "已打开配置文件")
+
+    def toggle_auto_polish(self) -> None:
+        if self.state.state not in {DictationState.IDLE, DictationState.ERROR}:
+            self.dependencies.tray.set_state(self.state.state.value, "请结束当前听写后切换自动润色")
+            return
+        enabled = not self.config.llm.auto_polish
+        self.apply_config(self.config.model_copy(update={
+            "llm": self.config.llm.model_copy(update={"auto_polish": enabled}),
+        }), persist=True)
+        self.dependencies.tray.set_state(
+            self.state.state.value, "已开启自动润色" if enabled else "已关闭自动润色，直接使用转写原文",
+        )
+
+    def toggle_realtime(self) -> None:
+        if self.state.state not in {DictationState.IDLE, DictationState.ERROR}:
+            self.dependencies.tray.set_state(self.state.state.value, "请结束当前听写后切换实时模式")
+            return
+        enabled = not self.config.review.realtime_enabled
+        if enabled:
+            try:
+                if self.dependencies.streaming_asr_factory is None:
+                    raise RuntimeError("实时 ASR 尚未配置")
+                self.dependencies.streaming_asr_factory()
+            except Exception as exc:
+                self._show_error(exc)
+                return
+        self.apply_config(
+            self.config.model_copy(update={
+                "review": self.config.review.model_copy(update={"realtime_enabled": enabled}),
+            }),
+            persist=True,
+        )
+        self.dependencies.tray.set_state(
+            self.state.state.value, "已开启实时转写润色" if enabled else "已关闭实时转写润色",
+        )
 
     def toggle_review(self) -> None:
         enabled = not self.config.review.enabled
@@ -224,6 +302,9 @@ class DesktopDictationController:
         self.dependencies.tray.set_input_devices(devices, self.dependencies.recorder.input_device)
 
     def select_input_device(self, device_id: str) -> None:
+        if self.state.state == DictationState.RECORDING:
+            self.dependencies.tray.set_state(self.state.state.value, "请停止录音后切换输入设备")
+            return
         updated_audio = self.config.audio.model_copy(update={"input_device": device_id})
         self.apply_config(self.config.model_copy(update={"audio": updated_audio}), persist=True)
         self.dependencies.tray.set_state(
@@ -316,6 +397,9 @@ class DesktopDictationController:
             self.dependencies.tray.set_state(self.state.state.value, "已导出录音")
 
     def _schedule_history_reprocess(self, record_id: str, *, retranscribe: bool) -> None:
+        if self._microphone_test_running():
+            self.dependencies.tray.set_state(self.state.state.value, "请先关闭麦克风测试窗口")
+            return
         if self.state.state == DictationState.ERROR:
             self.clear_error()
         if self.state.state != DictationState.IDLE:
@@ -373,14 +457,16 @@ class DesktopDictationController:
                     records=history_records,
                 )
 
-            _StateTrackingTray(self).set_state(DictationState.POLISHING.value)
-            style = self.styles.get(style_id)
-            final_text = await self.dependencies.llm_provider.polish(
-                raw_text,
-                context,
-                style.prompt,
-                profile=style.llm_profile,
-            )
+            final_text = raw_text
+            if not retranscribe or self.config.llm.auto_polish:
+                _StateTrackingTray(self).set_state(DictationState.POLISHING.value)
+                style = self.styles.get(style_id)
+                final_text = await self.dependencies.llm_provider.polish(
+                    raw_text,
+                    context,
+                    style.prompt,
+                    profile=style.llm_profile,
+                )
             updated_record = replace(
                 record,
                 raw_text=raw_text,
@@ -406,7 +492,9 @@ class DesktopDictationController:
             result = review_service.apply_result(result, review_result)
             self.dependencies.history_store.update(result.record)
             self.refresh_menu_summaries()
-            completion_detail = "已重新转写并润色" if retranscribe else "已重新润色"
+            completion_detail = "已重新润色"
+            if retranscribe:
+                completion_detail = "已重新转写并润色" if self.config.llm.auto_polish else "已重新转写"
         except Exception as exc:
             self._show_error(exc)
         finally:
@@ -465,9 +553,11 @@ class DesktopDictationController:
         self.dependencies.lifecycle.quit()
 
     async def run_pipeline_once(self) -> None:
+        self._pipeline_task = asyncio.current_task()
         raw_text_saved = False
         result = None
         save_attempted = False
+        realtime = None
         try:
             style = self.styles.get(self.style_bindings.current_style_id)
             pipeline = DictationPipeline(
@@ -486,13 +576,25 @@ class DesktopDictationController:
                     llm_profile=style.llm_profile,
                     context_enabled=self.config.context.enabled,
                     cleanup_audio=False,
+                    auto_polish=self.config.llm.auto_polish,
                 ),
             )
-            result = await pipeline.run_once()
-            if self.config.review.enabled:
-                _StateTrackingTray(self).set_state(DictationState.REVIEWING.value)
             review_service = self._review_service()
-            review_result = await review_service.review(result, enabled=self.config.review.enabled)
+            if self.config.review.realtime_enabled:
+                if self.dependencies.streaming_asr_factory is None:
+                    raise RuntimeError("实时 ASR 尚未配置")
+                realtime = RealtimeDictationSession(
+                    pipeline, review_service, self.dependencies.streaming_asr_factory(),
+                    polish_interval=self.config.review.polish_interval_seconds,
+                    finish_timeout=self.config.realtime_asr.timeout_seconds,
+                )
+                result = await realtime.run()
+                review_result = await realtime.review_task
+            else:
+                result = await pipeline.run_once()
+                if self.config.review.enabled:
+                    _StateTrackingTray(self).set_state(DictationState.REVIEWING.value)
+                review_result = await review_service.review(result, enabled=self.config.review.enabled)
             if review_result is None:
                 cancelled_record = replace(result.record, user_edited_text="")
                 save_attempted = True
@@ -547,10 +649,22 @@ class DesktopDictationController:
                     return
             self._show_error(exc, raw_text_saved=raw_text_saved)
         finally:
+            if realtime is not None:
+                await realtime.close()
+            self._pipeline_task = None
             if self.state.state != DictationState.ERROR:
                 _StateTrackingTray(self).set_state(DictationState.IDLE.value)
 
     async def close_clients(self) -> None:
+        if self._microphone_test_task is not None:
+            task = self._microphone_test_task
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+        elif self._microphone_test_running():
+            self._microphone_test_future.cancel()
+        if self._pipeline_task is not None and self._pipeline_task is not asyncio.current_task():
+            self._pipeline_task.cancel()
+            await asyncio.gather(self._pipeline_task, return_exceptions=True)
         await _maybe_aclose(self.dependencies.asr_provider)
         await _maybe_aclose(self.dependencies.llm_provider)
 
@@ -569,6 +683,8 @@ class DesktopDictationController:
         )
 
     def _sync_style_menu(self) -> None:
+        self.dependencies.tray.set_auto_polish(self.config.llm.auto_polish)
+        self.dependencies.tray.set_realtime_enabled(self.config.review.realtime_enabled)
         self.dependencies.tray.set_styles(self.styles.all(), self.style_bindings.current_style_id)
 
     def _show_error(self, exc: Exception, *, raw_text_saved: bool = False) -> None:
@@ -658,3 +774,4 @@ def apply_runtime_config(
     dependencies.tray.set_status_config(config.status)
     dependencies.tray.set_review_enabled(config.review.enabled)
     dependencies.recorder.set_input_device(config.audio.input_device)
+    dependencies.recorder.set_processing(config.audio.processing_options())

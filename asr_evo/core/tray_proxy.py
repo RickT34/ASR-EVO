@@ -26,6 +26,12 @@ class UnboundStatusTray(StatusTray):
     def set_status_config(self, status_config: object) -> None:
         self._bound().set_status_config(status_config)
 
+    def set_auto_polish(self, enabled: bool) -> None:
+        self._bound().set_auto_polish(enabled)
+
+    def set_realtime_enabled(self, enabled: bool) -> None:
+        self._bound().set_realtime_enabled(enabled)
+
     def set_review_enabled(self, enabled: bool) -> None:
         self._bound().set_review_enabled(enabled)
 

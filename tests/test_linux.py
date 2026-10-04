@@ -35,14 +35,14 @@ async def test_hyprland_paste_restores_captured_window(monkeypatch):
     system = desktop.LinuxDesktop()
     monkeypatch.setattr(system, "active_window", lambda: {"address": "0x123"})
     monkeypatch.setattr(system, "copy_text", lambda text: commands.append(("clipboard", text)))
-    monkeypatch.setattr(desktop, "run_command", lambda *args: commands.append(args))
-    inserter = desktop.LinuxTextInserter(system, LinuxConfig(paste_shortcut="ctrl+shift+v"))
+    monkeypatch.setattr(desktop, "run_command", lambda *args, **kwargs: commands.append((*args, kwargs) if kwargs else args))
+    inserter = desktop.LinuxTextInserter(system, LinuxConfig())
     inserter.capture_target()
     await inserter.insert("你好")
     assert commands == [
         ("hyprctl", "dispatch", "focuswindow", "address:0x123"),
         ("clipboard", "你好"),
-        ("hyprctl", "dispatch", "sendshortcut", "CTRL SHIFT, V, activewindow"),
+        ("hyprctl", "dispatch", "sendshortcut", "CTRL, V, activewindow"),
     ]
 
 
@@ -53,7 +53,7 @@ async def test_wayland_without_hyprland_uses_wtype_not_x11(monkeypatch):
     assert system.current_app().bundle_id is None
     calls = []
     monkeypatch.setattr(system, "copy_text", lambda text: None)
-    monkeypatch.setattr(desktop, "run_command", lambda *args: calls.append(args))
+    monkeypatch.setattr(desktop, "run_command", lambda *args, **kwargs: calls.append((*args, kwargs) if kwargs else args))
     await desktop.LinuxTextInserter(system, LinuxConfig()).insert("hello")
     assert calls == [("wtype", "-M", "ctrl", "-k", "v", "-m", "ctrl")]
 
@@ -63,7 +63,7 @@ async def test_x11_insertion(monkeypatch):
     system = desktop.LinuxDesktop()
     calls = []
     monkeypatch.setattr(system, "copy_text", lambda text: None)
-    monkeypatch.setattr(desktop, "run_command", lambda *args: calls.append(args))
+    monkeypatch.setattr(desktop, "run_command", lambda *args, **kwargs: calls.append((*args, kwargs) if kwargs else args))
     inserter = desktop.LinuxTextInserter(system, LinuxConfig())
     inserter.target = {"address": "42"}
     await inserter.insert("hello")
@@ -189,15 +189,15 @@ def test_command_error_preserves_stdout_diagnostics(monkeypatch):
         desktop.run_command("hyprctl", "dispatch", "focuswindow", "address:0x123")
 
 
-async def test_hyprland_lua_syntax_rejection_switches_focus_and_paste(monkeypatch):
+async def test_hyprland_lua_focus_then_paste(monkeypatch):
     monkeypatch.setenv("WAYLAND_DISPLAY", "wayland-1")
     monkeypatch.setenv("HYPRLAND_INSTANCE_SIGNATURE", "test")
     system = desktop.LinuxDesktop()
     calls = []
 
-    def run(*args):
-        calls.append(args)
-        if args[2] == "focuswindow":
+    def run(*args, **kwargs):
+        calls.append((*args, kwargs) if kwargs else args)
+        if len(args) > 2 and args[2] == "focuswindow":
             raise RuntimeError("dispatch in lua is a shorthand for hl.dispatch(...)")
         return "ok"
 
@@ -210,11 +210,7 @@ async def test_hyprland_lua_syntax_rejection_switches_focus_and_paste(monkeypatc
         ("hyprctl", "dispatch", "focuswindow", "address:0x123"),
         ("hyprctl", "dispatch", 'hl.dsp.focus({window = "address:0x123"})'),
         ("clipboard", "中文"),
-        (
-            "hyprctl",
-            "dispatch",
-            'hl.dsp.send_shortcut({mods = "CTRL", key = "V", window = "activewindow"})',
-        ),
+        ("hyprctl", "dispatch", 'hl.dsp.send_shortcut({mods = "CTRL", key = "V", window = "activewindow"})'),
     ]
 
 
@@ -232,3 +228,64 @@ def test_hyprland_does_not_retry_other_dispatch_failures(monkeypatch):
     with pytest.raises(RuntimeError, match="window not found"):
         system.dispatch("sendshortcut", "CTRL, V, activewindow", "unused")
     assert len(calls) == 1
+
+
+async def test_paste_copies_literal_text_and_does_not_retry_failed_shortcut(monkeypatch):
+    import pytest
+
+    monkeypatch.setenv("WAYLAND_DISPLAY", "wayland-1")
+    monkeypatch.delenv("HYPRLAND_INSTANCE_SIGNATURE", raising=False)
+    system = desktop.LinuxDesktop()
+    text = "--中文 'quoted'\n第二行\t🙂"
+    calls = []
+
+    def copy(_):
+        calls.append(("clipboard", _))
+
+    def run(*args, **kwargs):
+        calls.append((args, kwargs))
+        raise RuntimeError("wtype failed")
+
+    monkeypatch.setattr(system, "copy_text", copy)
+    monkeypatch.setattr(desktop, "run_command", run)
+    with pytest.raises(RuntimeError, match="wtype failed"):
+        await desktop.LinuxTextInserter(system, LinuxConfig()).insert(text)
+    assert calls == [("clipboard", text), (("wtype", "-M", "ctrl", "-k", "v", "-m", "ctrl"), {})]
+
+
+def test_hyprland_insertion_requires_clipboard_and_hyprctl(monkeypatch):
+    monkeypatch.setenv("WAYLAND_DISPLAY", "wayland-1")
+    monkeypatch.setenv("HYPRLAND_INSTANCE_SIGNATURE", "test")
+    monkeypatch.setattr(desktop.shutil, "which", lambda name: name if name in {"wl-copy", "hyprctl"} else None)
+    assert desktop.LinuxDesktop().accessibility_trusted()
+    monkeypatch.setattr(desktop.shutil, "which", lambda name: name if name == "hyprctl" else None)
+    assert not desktop.LinuxDesktop().accessibility_trusted()
+
+
+async def test_terminal_paste_uses_ctrl_shift_v(monkeypatch):
+    monkeypatch.setenv("WAYLAND_DISPLAY", "wayland-1")
+    monkeypatch.setenv("HYPRLAND_INSTANCE_SIGNATURE", "test")
+    system = desktop.LinuxDesktop()
+    calls = []
+    monkeypatch.setattr(system, "copy_text", lambda text: calls.append(("clipboard", text)))
+    monkeypatch.setattr(desktop, "run_command", lambda *args: calls.append(args))
+    inserter = desktop.LinuxTextInserter(system, LinuxConfig(paste_shortcut="ctrl+shift+v"))
+    await inserter.insert("第一行\n第二行")
+    assert calls == [
+        ("clipboard", "第一行\n第二行"),
+        ("hyprctl", "dispatch", "sendshortcut", "CTRL SHIFT, V, activewindow"),
+    ]
+
+
+async def test_clipboard_failure_does_not_send_paste(monkeypatch):
+    import pytest
+
+    system = desktop.LinuxDesktop()
+    commands = []
+    def fail(text):
+        raise RuntimeError("clipboard unavailable")
+    monkeypatch.setattr(system, "copy_text", fail)
+    monkeypatch.setattr(desktop, "run_command", lambda *args: commands.append(args))
+    with pytest.raises(RuntimeError, match="clipboard unavailable"):
+        await desktop.LinuxTextInserter(system, LinuxConfig()).insert("hello")
+    assert not commands

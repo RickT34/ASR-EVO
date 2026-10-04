@@ -70,6 +70,7 @@ class DictationOptions:
     llm_profile: str | None = None
     context_enabled: bool = True
     cleanup_audio: bool = True
+    auto_polish: bool = True
 
 
 class DictationPipelineError(Exception):
@@ -113,26 +114,18 @@ class DictationPipeline:
             transcript = await self.dependencies.asr.transcribe(audio)
             transcript_text = transcript.text
 
-            self.dependencies.tray.set_state(DictationState.POLISHING.value)
             context = ""
             if self.options.context_enabled:
-                history_records = (
-                    self.dependencies.history_store.recent_records(
-                        limit=self.dependencies.context_store.max_items * 5
-                    )
-                    if self.dependencies.history_store is not None
-                    else ()
+                context = render_context(self.dependencies, app_context)
+            final_text = transcript_text
+            if self.options.auto_polish:
+                self.dependencies.tray.set_state(DictationState.POLISHING.value)
+                final_text = await self.dependencies.llm.polish(
+                    transcript_text,
+                    context,
+                    self.options.prompt_instruction,
+                    profile=self.options.llm_profile,
                 )
-                context = self.dependencies.context_store.render_for_prompt(
-                    app_context=app_context,
-                    records=history_records,
-                )
-            final_text = await self.dependencies.llm.polish(
-                transcript_text,
-                context,
-                self.options.prompt_instruction,
-                profile=self.options.llm_profile,
-            )
 
             record = DictationRecord.create(
                 started_at=started_at,
@@ -172,3 +165,11 @@ class DictationPipeline:
             if self.options.cleanup_audio and audio is not None:
                 with contextlib.suppress(OSError):
                     audio.path.unlink()
+
+
+def render_context(dependencies: DictationDependencies, app_context: AppContext) -> str:
+    records = (
+        dependencies.history_store.recent_records(limit=dependencies.context_store.max_items * 5)
+        if dependencies.history_store is not None else ()
+    )
+    return dependencies.context_store.render_for_prompt(app_context=app_context, records=records)

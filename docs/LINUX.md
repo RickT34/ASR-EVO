@@ -13,7 +13,7 @@ Arch Linux 系统依赖（按需要安装）：
 sudo pacman -S portaudio tk wl-clipboard xdg-utils
 # 普通托盘与 Waybar 右键菜单共用的菜单依赖
 sudo pacman -S gtk3 gtk-layer-shell libappindicator-gtk3 gobject-introspection
-# 非 Hyprland 的 wlroots Wayland 桌面
+# 非 Hyprland 的 Wayland 桌面用于发送粘贴快捷键
 sudo pacman -S wtype
 # X11 桌面
 sudo pacman -S xdotool xclip
@@ -41,10 +41,10 @@ uv pip install --python .venv/bin/python -e '.[linux]'
 ```toml
 [linux]
 tray = "standard" # 或 waybar；切换需重启
-paste_shortcut = "ctrl+v"
+paste_shortcut = "ctrl+v" # 终端通常使用 ctrl+shift+v
 ```
 
-- `standard`：AppIndicator 托盘，保留风格、录音设备、确认开关、历史、统计、重新加载配置和退出菜单，额外提供“开始 / 停止听写”。桌面需支持 StatusNotifierItem；Waybar 的 `tray` 可以显示它。GNOME 需要托盘扩展，而且自动粘贴还需单独解决其虚拟键盘限制。
+- `standard`：AppIndicator 托盘，保留风格、录音设备、确认开关、历史、统计、重新加载配置和退出菜单，额外提供“开始 / 停止听写”。桌面需支持 StatusNotifierItem；Waybar 的 `tray` 可以显示它。GNOME 需要托盘扩展，而且模拟输入还需单独解决其虚拟键盘限制。
 - `waybar`：后台运行，不创建普通托盘图标。自定义模块轮询本机控制端口；左键开始/停止，右键打开菜单，中键停止；悬停显示状态或错误，进程退出显示 offline。右键通过 `asr-evo-control menu --port 8765` 打开鼠标附近的独立 GTK 弹出菜单，共用普通托盘的风格、设备、确认开关、历史、统计、配置与退出操作。菜单需要 `[linux]` 可选依赖、GTK 3，以及 Wayland 下的 `gtk-layer-shell`。Wayland 菜单直接使用合成器的鼠标事件与逻辑坐标，在当前指针所在屏幕显示，靠边时自动向屏幕内调整；不依赖 Tk / XWayland。中文文字使用 GTK/Pango 字体渲染，菜单采用明确的前景和背景颜色。点击箭头项打开子菜单，选择、Esc 或点击菜单外部关闭。
 
 本机现有 `~/.config/waybar/config.jsonc` 中，左侧已有 `tray`，右侧已有 `custom/voice_input`；CSS 使用 `DroidSansM Nerd Font`、半透明背景、虚线圆角边框。示例沿用这些习惯，未自动修改本机文件：
@@ -67,9 +67,11 @@ Linux 不注册 `[hotkey]` 内置监听，由桌面快捷键运行以下命令�
 
 [hyprland.lua](../examples/linux/hyprland.lua) 按本机 `hl.bind(..., hl.dsp.exec_cmd(...))` 写法提供 Ctrl+Alt+Space 示例，也附传统 Hyprland 配置写法。
 
-Hyprland 通过 `hyprctl activewindow -j` 识别应用，应用绑定的 key 是窗口 class（例如 `kitty`），并在开始听写时记住窗口地址。确认文本后切回该窗口，再发送粘贴快捷键。兼容旧式 dispatcher 和 Lua 模式的 `hl.dsp.focus` / `hl.dsp.send_shortcut`；仅在收到明确的 Lua 语法拒绝时切换接口，不会因普通失败重复发送粘贴。命令错误同时保留 stdout、stderr 和退出码。X11 使用 xdotool 做对应操作。其他 Wayland 桌面无法通用查询/恢复前台窗口，按应用自动风格不可用，用户应保持目标输入框聚焦。`wtype` 不适用于不支持虚拟键盘协议的桌面，例如默认 GNOME Wayland。
+Hyprland 通过 `hyprctl activewindow -j` 识别应用，应用绑定的 key 是窗口 class（例如 `kitty`），并在开始听写时记住窗口地址。确认文本后切回该窗口，再发送粘贴快捷键。窗口恢复兼容旧式 dispatcher 和 Lua 模式的 `hl.dsp.focus`；仅在收到明确的 Lua 语法拒绝时切换接口。命令错误同时保留 stdout、stderr 和退出码。X11 使用 xdotool 做对应操作。其他 Wayland 桌面无法通用查询/恢复前台窗口，按应用自动风格不可用，用户应保持目标输入框聚焦。`wtype` 不适用于不支持虚拟键盘协议的桌面，例如默认 GNOME Wayland。
 
-Linux 将结果复制到剪贴板并保留，便于手动重贴，不承诺恢复任意 MIME 类型的旧剪贴板。终端通常需要 `paste_shortcut = "ctrl+shift+v"`；图形文本框通常用 `ctrl+v`。未识别目标窗口或窗口已关闭时，检查错误提示和历史中的文本。
+Linux 使用复制—粘贴插入：Wayland 用 `wl-copy`、X11 用 `xclip` 写入完整文本，再发送一次粘贴快捷键。Hyprland 使用 `hyprctl`（兼容旧 dispatcher 和 Lua 模式），其他 Wayland 桌面用 `wtype` 发送按键，X11 用 `xdotool key`。文本内容不会被逐字模拟成按键，也不会在失败后自动重试输入。
+
+`[linux] paste_shortcut` 支持 `ctrl+v`（默认）和 `ctrl+shift+v`（常见终端）。Linux 会把结果保留在剪贴板，便于手动重贴，不恢复任意 MIME 类型的旧剪贴板。启动检查会确认所需剪贴板工具和按键工具已安装。
 
 确认窗口需要 Tk；若没有 Tk，安装相应系统依赖或设置 `[review] enabled = false`。
 
@@ -147,3 +149,11 @@ systemctl --user import-environment WAYLAND_DISPLAY DISPLAY HYPRLAND_INSTANCE_SI
 再将服务文件安装到 `~/.config/systemd/user/`，执行 `systemctl --user daemon-reload` 与 `systemctl --user enable --now asr-evo.service`。也可以直接在合成器的启动命令中以项目目录为工作目录启动，无需 systemd。
 
 协议参考：[Qwen3-ASR 官方实现](https://github.com/QwenLM/Qwen3-ASR)、[Ollama Chat API](https://docs.ollama.com/api/chat)、[Waybar custom 模块](https://github.com/Alexays/Waybar/wiki/Module:-Custom)、[pystray 后端](https://pystray.readthedocs.io/en/latest/usage.html#selecting-a-backend)。
+
+## 实时转写润色
+
+标准托盘与 Waybar 右键菜单均提供「实时转写润色模式」。使用前需配置专用流式 ASR，见 [配置与操作说明](REALTIME.md)。本地 Qwen 流式模式使用 vLLM，原有 Transformers 非流式环境不能直接复用。
+
+## 录音降噪
+
+可在 `[audio]` 中开启 `noise_suppression`，使用本机 RNNoise 0.2+ 降噪；`input_gain_db` 可补偿低电平麦克风输入。安装及对比方法见 [音频增强说明](AUDIO.md)。

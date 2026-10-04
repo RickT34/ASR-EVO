@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import logging
 import os
+import queue
 import tempfile
 import threading
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -13,6 +16,11 @@ import sounddevice as sd
 import soundfile as sf
 
 from asr_evo.core.ports import AudioClip
+from asr_evo.audio.pcm import PCM16StreamEncoder
+from asr_evo.audio.enhancement import AudioProcessingOptions, SpeechEnhancer
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -35,20 +43,27 @@ class SoundDeviceRecorder:
         sample_rate: int = 16000,
         channels: int = 1,
         input_device: str | int | None = None,
+        processing: AudioProcessingOptions | None = None,
     ) -> None:
+        self.processing = processing or AudioProcessingOptions()
         self.sample_rate = sample_rate
         self.channels = channels
         self.input_device = _normalize_device_id(input_device)
         self._frames: list = []
         self._stop_event: threading.Event | None = None
-        self._restart_event: threading.Event | None = None
         self._lock = threading.Lock()
         self._stop_requested = False
 
     def set_input_device(self, device_id: str | int | None) -> None:
-        self.input_device = _normalize_device_id(device_id)
-        if self._restart_event is not None:
-            self._restart_event.set()
+        normalized = _normalize_device_id(device_id)
+        if normalized == self.input_device:
+            return
+        self.input_device = normalized
+
+
+    def set_processing(self, options: AudioProcessingOptions) -> None:
+        # Applied at the start of the next recording; never reset a live filter.
+        self.processing = options
 
     def input_devices(self) -> list[InputDevice]:
         return list_input_devices()
@@ -56,74 +71,108 @@ class SoundDeviceRecorder:
     def current_input_label(self) -> str:
         return input_device_label(self.input_device, self.input_devices())
 
-    async def record_until_stopped(self) -> AudioClip:
+    async def record_until_stopped(self, on_chunk: Callable[[bytes], None] | None = None) -> AudioClip:
         fd, raw_path = tempfile.mkstemp(prefix="asr-evo-", suffix=".wav")
         os.close(fd)
         path = Path(raw_path)
+        recording = asyncio.create_task(asyncio.to_thread(self._record_until_stopped_sync, path, on_chunk))
         try:
-            return await asyncio.to_thread(self._record_until_stopped_sync, path)
-        except Exception:
+            return await asyncio.shield(recording)
+        except BaseException:
+            if not recording.done():
+                self.stop()
+            await asyncio.gather(recording, return_exceptions=True)
             with contextlib.suppress(OSError):
                 path.unlink()
             raise
 
-    def _record_until_stopped_sync(self, path: Path) -> AudioClip:
-        self._frames = []
+    def _record_until_stopped_sync(
+        self, path: Path, on_chunk: Callable[[bytes], None] | None = None,
+    ) -> AudioClip:
         stop_event = threading.Event()
         with self._lock:
+            self._frames = []
             self._stop_event = stop_event
             if self._stop_requested:
                 self._stop_requested = False
                 stop_event.set()
-        sample_rate = _stream_sample_rate(
-            self.input_device,
-            channels=self.channels,
-            preferred_sample_rate=self.sample_rate,
-        )
+        options = self.processing
+        device = self.input_device
+        pending: queue.Queue = queue.Queue(maxsize=200)
+        callback_error: list[Exception] = []
+        input_overflows = 0
+        enhancer = None
+        sample_rate = self.sample_rate
 
         def callback(indata, frames, time, status) -> None:
-            if status:
-                return
-            self._frames.append(indata.copy())
+            nonlocal input_overflows
+            # An overflow reports already-lost samples, not an unusable current
+            # buffer. Keep recording; never log or perform DSP on this callback.
+            if status.input_overflow:
+                input_overflows += 1
+            try:
+                pending.put_nowait(indata.copy())
+            except queue.Full:
+                callback_error.append(RuntimeError("音频处理积压，录音已停止，请降低处理负载"))
+                stop_event.set()
 
         try:
-            while not stop_event.is_set():
-                restart_event = threading.Event()
-                with self._lock:
-                    self._restart_event = restart_event
-                sample_rate = _stream_sample_rate(
-                    self.input_device,
-                    channels=self.channels,
-                    preferred_sample_rate=self.sample_rate,
-                )
+            sample_rate = _stream_sample_rate(
+                device, channels=self.channels,
+                preferred_sample_rate=48000 if options.noise_suppression else self.sample_rate,
+            )
+            enhancer = SpeechEnhancer(sample_rate, options)
+            output_rate = enhancer.sample_rate
+            encoder = PCM16StreamEncoder(output_rate) if on_chunk is not None else None
+
+            def emit(processed) -> None:
+                if not len(processed):
+                    return
+                self._frames.append(processed)
+                if encoder is not None:
+                    chunk = encoder.encode(processed)
+                    if chunk:
+                        on_chunk(chunk)
+
+            if not stop_event.is_set():
                 with sd.InputStream(
-                    device=_stream_device_arg(self.input_device),
-                    samplerate=sample_rate,
-                    channels=self.channels,
-                    callback=callback,
+                    device=_stream_device_arg(device), samplerate=sample_rate,
+                    channels=self.channels, dtype="float32", latency="high",
+                    blocksize=max(1, sample_rate // 10), callback=callback,
                 ):
                     while not stop_event.is_set():
-                        if restart_event.wait(timeout=0.05):
-                            break
+                        try:
+                            frames = pending.get(timeout=0.05)
+                        except queue.Empty:
+                            continue
+                        emit(enhancer.process(frames))
+            # The microphone is closed: drain queued audio before flushing filters.
+            while not pending.empty():
+                emit(enhancer.process(pending.get_nowait()))
+            emit(enhancer.finish())
+            if encoder is not None:
+                tail = encoder.finish()
+                if tail:
+                    on_chunk(tail)
+            if callback_error:
+                raise callback_error[0]
+
+            import numpy as np
+
+            audio = np.concatenate(self._frames, axis=0) if self._frames else np.empty((0, 1))
+            sf.write(path, audio, output_rate)
+            return AudioClip(path=path, sample_rate=output_rate, duration_seconds=len(audio) / output_rate)
         finally:
+            if input_overflows:
+                logger.warning(
+                    "录音检测到 %d 次输入溢出，已继续接收有效音频；丢失部分无法恢复。设备=%s，采样率=%s",
+                    input_overflows, device or "default", sample_rate,
+                )
+            if enhancer is not None:
+                enhancer.close()
             with self._lock:
                 self._stop_requested = False
                 self._stop_event = None
-                self._restart_event = None
-
-        if not self._frames:
-            sf.write(path, [], sample_rate)
-            return AudioClip(path=path, sample_rate=sample_rate, duration_seconds=0)
-
-        import numpy as np
-
-        audio = np.concatenate(self._frames, axis=0)
-        sf.write(path, audio, sample_rate)
-        return AudioClip(
-            path=path,
-            sample_rate=sample_rate,
-            duration_seconds=len(audio) / sample_rate,
-        )
 
     def stop(self) -> None:
         with self._lock:

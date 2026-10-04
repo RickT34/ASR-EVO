@@ -12,11 +12,12 @@ from asr_evo.core.controller import DesktopControllerDependencies, DesktopDictat
 from asr_evo.core.tray_proxy import UnboundStatusTray
 from asr_evo.platforms.linux.desktop import LinuxDesktop, LinuxTextInserter
 from asr_evo.platforms.linux.tray import LinuxStatusTray
-from asr_evo.providers.factory import create_providers, provider_config_changed
+from asr_evo.providers.factory import create_streaming_asr_provider, create_providers, provider_config_changed
 from asr_evo.storage.history import HistoryStore
 from asr_evo.ui.file_export import TkFileExporter
 from asr_evo.ui.popup_menu import show_popup_menu
 from asr_evo.ui.text_review import TkTextReviewer
+from asr_evo.ui.microphone_test import show_microphone_test
 
 
 class LinuxDictationRuntime:
@@ -38,11 +39,14 @@ class LinuxDictationRuntime:
                     sample_rate=AUDIO_DEFAULTS.sample_rate,
                     channels=AUDIO_DEFAULTS.channels,
                     input_device=config.audio.input_device,
+                    processing=config.audio.processing_options(),
                 ),
                 asr_provider=asr,
                 llm_provider=llm,
                 inserter=self.inserter,
                 text_reviewer=TkTextReviewer(),
+                microphone_tester=show_microphone_test,
+                streaming_asr_factory=lambda: create_streaming_asr_provider(self.controller.config),
                 app_provider=self.desktop,
                 history_store=HistoryStore(STORAGE_DEFAULTS.database_path),
                 context_store=config.context.store(),

@@ -6,6 +6,7 @@ from asr_evo.core.pipeline import DictationResult
 from asr_evo.core.ports import (
     AppContext,
     LLMProvider,
+    LiveTextReview,
     TextReviewPreviewRequest,
     TextReviewRequest,
     TextReviewResult,
@@ -41,6 +42,7 @@ class TextReviewService:
         result: DictationResult,
         *,
         enabled: bool,
+        live: LiveTextReview | None = None,
     ) -> TextReviewResult | None:
         if not enabled:
             return TextReviewResult(
@@ -52,8 +54,9 @@ class TextReviewService:
 
         return await self.reviewer.review(
             self._request_for(result),
-            self._previewer(result),
+            self._previewer(result, live=live),
             self._saver(result.app_context or AppContext()),
+            **({"live": live} if live is not None else {}),
         )
 
     def apply_result(self, result: DictationResult, review: TextReviewResult) -> DictationResult:
@@ -74,14 +77,15 @@ class TextReviewService:
                 for style in self.styles.all()
             ],
             context=result.context,
+            auto_polish=self.style_bindings.config.llm.auto_polish,
         )
 
-    def _previewer(self, result: DictationResult):
+    def _previewer(self, result: DictationResult, *, live: LiveTextReview | None = None):
         async def preview(request: TextReviewPreviewRequest) -> str:
             self._select_existing_style(request.style_id)
             style = self.styles.get(request.style_id)
             return await self.llm.polish(
-                result.raw_text,
+                live.raw_text if live is not None else result.raw_text,
                 result.context,
                 request.prompt_instruction,
                 profile=style.llm_profile,

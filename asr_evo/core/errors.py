@@ -67,6 +67,10 @@ def feedback_from_exception(exc: Exception, *, raw_text_saved: bool = False) -> 
         title = "请求过于频繁"
         detail = "服务端触发了限流。"
         suggestion = "请稍等一会儿再试；如果经常出现，降低连续听写频率或检查服务限额。"
+    elif ("model not found" in lower_message or "modelnotfound" in lower_message) and not _has_status_code(lower_message, 400, 404):
+        title = "模型或接口配置有误"
+        detail = "当前接口无法访问指定模型。"
+        suggestion = "请检查模型名称、接口协议、地域和模型权限；实时模式使用 realtime_asr.model 与 url。"
     elif _has_status_code(lower_message, 400, 404):
         title = "服务配置有误"
         detail = "服务端无法识别当前请求、模型或地址。"

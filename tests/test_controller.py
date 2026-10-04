@@ -540,6 +540,12 @@ class FakeTray:
     def set_status_config(self, status_config) -> None:
         pass
 
+    def set_auto_polish(self, enabled: bool) -> None:
+        self.auto_polish = enabled
+
+    def set_realtime_enabled(self, enabled: bool) -> None:
+        self.realtime_enabled = enabled
+
     def set_review_enabled(self, enabled: bool) -> None:
         self.review_enabled = enabled
 
@@ -573,6 +579,9 @@ class FakeRecorder:
 
     def stop(self) -> None:
         self.stopped = True
+
+    def set_processing(self, options) -> None:
+        self.processing = options
 
     def set_input_device(self, device_id: str | int | None) -> None:
         self.input_device = "" if device_id is None else str(device_id)
@@ -722,3 +731,45 @@ class FakeLifecycle:
 
     def quit(self) -> None:
         self.did_quit = True
+
+
+@pytest.mark.parametrize("review_enabled", [True, False])
+async def test_auto_polish_disabled_inserts_raw_without_llm(tmp_path, review_enabled):
+    controller, deps = _make_controller(tmp_path)
+    controller.config.llm.auto_polish = False
+    controller.config.review.enabled = review_enabled
+    deps.recorder.audio_path.write_bytes(b"audio")
+    await controller.run_pipeline_once()
+    assert deps.llm_provider.calls == []
+    assert deps.inserter.text == "raw"
+    record = deps.history_store.recent()[0]
+    assert record["raw_text"] == record["final_text"] == record["user_edited_text"] == "raw"
+    assert not any(state == "polishing" for state, _ in deps.tray.states)
+    if review_enabled:
+        assert deps.text_reviewer.seen[0].auto_polish is False
+
+
+async def test_auto_polish_off_still_allows_manual_review_polish(tmp_path):
+    controller, deps = _make_controller(tmp_path)
+    controller.config.llm.auto_polish = False
+    deps.recorder.audio_path.write_bytes(b"audio")
+    deps.text_reviewer.preview_request = TextReviewPreviewRequest("通用润色", "manual polish")
+    await controller.run_pipeline_once()
+    assert deps.llm_provider.calls == [("raw", "", "manual polish")]
+    assert deps.history_store.recent()[0]["final_text"] == "final:raw"
+
+
+def test_auto_polish_menu_switch_is_shared_and_persisted(tmp_path):
+    controller, deps = _make_controller(tmp_path)
+    controller.tray_actions().toggle_auto_polish()
+    assert not deps.tray.auto_polish
+    assert not AppConfig.load(tmp_path / "config.toml").llm.auto_polish
+    controller.config.review.realtime_enabled = True
+    assert not controller.config.llm.auto_polish
+    controller.state.state = DictationState.RECORDING
+    controller.toggle_auto_polish()
+    assert not controller.config.llm.auto_polish
+    controller.state.state = DictationState.IDLE
+    controller.toggle_auto_polish()
+    assert deps.tray.auto_polish
+    assert AppConfig.load(tmp_path / "config.toml").llm.auto_polish

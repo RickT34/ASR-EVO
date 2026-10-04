@@ -14,3 +14,5 @@ dist/
 build/
 *.egg-info/
 .vscode
+# Local user audio comparisons; never commit personal recordings.
+/artifacts/audio-comparison/

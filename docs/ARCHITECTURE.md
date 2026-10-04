@@ -203,3 +203,15 @@ Also verify:
 `qwen_local` starts a fresh worker only on `transcribe`. The optional torch/qwen-asr imports occur only in that worker. Workers are serialized per provider and always reaped after success, failure, timeout or cancellation. Process exit releases model tensors and the CUDA context; downloaded weights remain on disk. An alternate Python executable can isolate the model dependencies.
 
 Ollama profiles use the native API so `keep_alive` reaches the model server. The default is zero (unload after generation); positive seconds trade idle memory for lower latency. Closing a used provider sends an explicit unload and closes the HTTP client. Unused profiles do not issue model requests. The external Ollama service remains running and may also serve other clients. Existing OpenAI backends and profile routing remain available independently.
+
+## 实时模式
+
+`core/realtime.py` 管理同一录音的流式 ASR、串行定时润色和确认窗口生命周期；保存历史与插入仍由共享 controller 完成。录音器输出连续 PCM16 音频帧并保存原始录音；流式重采样保留帧间状态。`providers/dashscope_streaming.py` 实现百炼 WebSocket 协议，`providers/qwen_streaming.py` 和 `qwen_stream_worker.py` 隔离本地 vLLM 模型。`LiveTextReview` 传递最新窗口状态；Tk 子进程用单一输入读取线程和主线程消息轮询处理实时更新及预览响应。
+
+非实时 `dashscope_filetrans` 后端由 `providers/dashscope_filetrans.py` 负责临时上传、原生异步任务轮询和结果下载；后端选择显式配置，OpenAI 兼容适配器保持原有行为。
+
+`providers/dashscope_message.py` 将已录制音频转换成连续 PCM 帧，复用百炼 WebSocket 任务协议。`audio/pcm.py` 统一维护录音与文件转写的流式重采样和 PCM 编码，避免模型适配器依赖麦克风设备初始化。
+
+`audio/enhancement.py` 拥有 RNNoise 状态、音量与帧对齐规则；录音回调只入队，工作线程处理后同时发送给实时 ASR 并保存录音。`audio/enhance_file.py` 复用同一个处理器生成已有录音的对比副本，CLI 只负责参数与路径。
+
+麦克风测试由 `audio/monitor.py` 维护独立的输入／输出流和有界监听缓冲，复用 `SpeechEnhancer`。`ui/microphone_test.py` 在应用 Python 环境中管理音频并与标准库 Tk 子进程通信；`ui/microphone_test_dialog.py` 仅渲染控制项和电平。控制器负责防止与听写同时运行，并通过已有配置保存流程提交用户确认的音频设置。
